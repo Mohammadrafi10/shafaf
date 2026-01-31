@@ -151,6 +151,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
     account_id: "",
     date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
     notes: "",
+    total: "",
   });
 
   // Pagination & Search
@@ -286,6 +287,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
         account_id: "",
         date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
         notes: "",
+        total: "",
       });
     }
     setIsModalOpen(true);
@@ -309,6 +311,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
       account_id: "",
       date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
       notes: "",
+      total: "",
     });
   };
 
