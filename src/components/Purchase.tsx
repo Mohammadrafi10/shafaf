@@ -76,6 +76,11 @@ const translations = {
   noPurchases: "هیچ خریداری ثبت نشده است",
   confirmDelete: "آیا از حذف این خریداری اطمینان دارید؟",
   backToDashboard: "بازگشت به داشبورد",
+  initialPayment: "پرداخت اولیه",
+  initialPaymentOptional: "پرداخت اولیه (اختیاری)",
+  optional: "اختیاری",
+  totalPurchases: "تعداد خریداری‌ها",
+  totalValue: "ارزش کل",
   success: {
     created: "خریداری با موفقیت ایجاد شد",
     updated: "خریداری با موفقیت بروزرسانی شد",
@@ -136,6 +141,14 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
     currency: "",
     rate: "1",
     total: "",
+    date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
+    notes: "",
+  });
+  const [initialPaymentFormData, setInitialPaymentFormData] = useState({
+    amount: "",
+    currency: "",
+    rate: "1",
+    account_id: "",
     date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
     notes: "",
   });
@@ -266,6 +279,14 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
         additional_costs: [],
         items: [] as PurchaseItemInput[],
       });
+      setInitialPaymentFormData({
+        amount: "",
+        currency: currencies[0]?.name || "",
+        rate: currencies[0]?.rate?.toString() || "1",
+        account_id: "",
+        date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
+        notes: "",
+      });
     }
     setIsModalOpen(true);
   };
@@ -280,6 +301,14 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
       currency_id: currencies.length > 0 ? currencies[0].id : 0,
       additional_costs: [],
       items: [],
+    });
+    setInitialPaymentFormData({
+      amount: "",
+      currency: "",
+      rate: "1",
+      account_id: "",
+      date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
+      notes: "",
     });
   };
 
@@ -384,7 +413,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
         );
         toast.success(translations.success.updated);
       } else {
-        await createPurchase(
+        const newPurchase = await createPurchase(
           formData.supplier_id,
           formData.date,
           formData.notes || null,
@@ -393,6 +422,33 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
           formData.items
         );
         toast.success(translations.success.created);
+        const initialAmount = parseFloat(initialPaymentFormData.amount) || 0;
+        if (initialAmount > 0 && initialPaymentFormData.currency) {
+          try {
+            const paymentDate = initialPaymentFormData.date?.trim() || persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split("T")[0];
+            const accountId = initialPaymentFormData.account_id?.trim()
+              ? parseInt(initialPaymentFormData.account_id, 10)
+              : null;
+            if (Number.isNaN(accountId) && initialPaymentFormData.account_id?.trim()) {
+              toast.error("خریداری ایجاد شد؛ حساب انتخاب شده نامعتبر است");
+            } else {
+              await createPurchasePayment(
+                newPurchase.id,
+                accountId ?? null,
+                initialAmount,
+                initialPaymentFormData.currency.trim(),
+                parseFloat(initialPaymentFormData.rate) || 1,
+                paymentDate,
+                initialPaymentFormData.notes?.trim() || null
+              );
+              toast.success("پرداخت اولیه با موفقیت ثبت شد");
+            }
+          } catch (paymentError: any) {
+            const msg = typeof paymentError === "string" ? paymentError : (paymentError?.message || paymentError?.toString?.() || "خطا در ثبت پرداخت اولیه");
+            toast.error(`خریداری ایجاد شد؛ ${msg}`, { duration: 5000 });
+            console.error("Error creating initial payment:", paymentError);
+          }
+        }
       }
       handleCloseModal();
       await loadData();
@@ -472,6 +528,19 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
     return accounts.filter(account => account.currency_id === selectedCurrency.id && account.is_active);
   };
 
+  const getFilteredAccountsForInitialPayment = () => {
+    if (!initialPaymentFormData.currency) return [];
+    const selectedCurrency = currencies.find(c => c.name === initialPaymentFormData.currency);
+    if (!selectedCurrency) return [];
+    return accounts.filter(account => account.currency_id === selectedCurrency.id && account.is_active);
+  };
+
+  const calculateInitialPaymentTotal = () => {
+    const amount = parseFloat(initialPaymentFormData.amount) || 0;
+    const rate = parseFloat(initialPaymentFormData.rate) || 1;
+    return amount * rate;
+  };
+
   const calculatePaymentTotal = () => {
     const amount = parseFloat(paymentFormData.amount) || 0;
     const rate = parseFloat(paymentFormData.rate) || 1;
@@ -482,6 +551,11 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
     const total = calculatePaymentTotal();
     setPaymentFormData(prev => ({ ...prev, total: total.toFixed(2) }));
   }, [paymentFormData.amount, paymentFormData.rate]);
+
+  useEffect(() => {
+    const total = calculateInitialPaymentTotal();
+    setInitialPaymentFormData(prev => ({ ...prev, total: total.toFixed(2) }));
+  }, [initialPaymentFormData.amount, initialPaymentFormData.rate]);
 
   // Load account balance when account and currency are selected
   useEffect(() => {
@@ -588,23 +662,76 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
           ]}
         />
 
-        {/* Search Bar */}
-        <div className="relative max-w-md w-full mb-6">
-          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-            <Search className="h-5 w-5 text-gray-400" />
+        {/* Stats strip */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6"
+        >
+          <div className="p-5 rounded-2xl bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-purple-200/60 dark:border-purple-700/40 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white shadow-lg">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{translations.totalPurchases}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalItems.toLocaleString("fa-IR")}</p>
+              </div>
+            </div>
           </div>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="block w-full pr-10 pl-3 py-3 border border-gray-200 dark:border-gray-700 rounded-xl leading-5 bg-white dark:bg-gray-800 placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 sm:text-sm transition-all shadow-sm hover:shadow-md"
-            placeholder="جستجو بر اساس تاریخ، یادداشت یا تمویل کننده..."
-          />
-        </div>
+          <div className="p-5 rounded-2xl bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-blue-200/60 dark:border-blue-700/40 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white shadow-lg">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{translations.totalValue}</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {purchases.reduce((sum, p) => sum + p.total_amount, 0).toLocaleString("en-US")} افغانی
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="p-5 rounded-2xl bg-white/80 dark:bg-gray-800/80 backdrop-blur border border-emerald-200/60 dark:border-emerald-700/40 shadow-lg sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white shadow-lg">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">جستجو</p>
+                <div className="relative">
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                    <Search className="h-5 w-5 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setPage(1);
+                    }}
+                    className="block w-full pr-10 pl-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent sm:text-sm transition-all"
+                    placeholder="تاریخ، یادداشت یا تمویل کننده..."
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
 
+        {/* Table card */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="rounded-2xl bg-white/90 dark:bg-gray-800/90 backdrop-blur border border-gray-200/80 dark:border-gray-700/80 shadow-xl overflow-hidden"
+        >
         {(() => {
           const columns = [
             {
@@ -750,6 +877,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
             />
           );
         })()}
+        </motion.div>
 
         {/* Modal for Add/Edit */}
         <AnimatePresence>
@@ -766,12 +894,31 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 w-full max-w-4xl max-h-[90vh] overflow-y-auto my-8"
+                className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 w-full max-w-4xl max-h-[90vh] overflow-y-auto my-8 border border-gray-200/50 dark:border-gray-700/50"
               >
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
-                  {editingPurchase ? translations.edit : translations.addNew}
-                </h2>
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="flex items-center gap-4 mb-8 pb-6 border-b border-gray-200 dark:border-gray-700">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white shadow-lg">
+                    <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                      {editingPurchase ? translations.edit : translations.addNew}
+                    </h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                      {editingPurchase ? "ویرایش اطلاعات خریداری" : "ثبت خریداری جدید و آیتم‌ها"}
+                    </p>
+                  </div>
+                </div>
+                <form onSubmit={handleSubmit} className="space-y-8">
+                  <div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      <span className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">اطلاعات اصلی</span>
+                    </div>
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
@@ -822,6 +969,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                       </select>
                     </div>
                   </div>
+                  </div>
 
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
@@ -838,10 +986,16 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                   </div>
 
                   <div>
-                    <div className="flex justify-between items-center mb-4">
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    <div className="flex items-center gap-2 mb-4">
+                      <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
                         هزینه‌های اضافی
                       </label>
+                    </div>
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">افزودن هزینه‌های حمل، بیمه و غیره</span>
                       <motion.button
                         type="button"
                         whileHover={{ scale: 1.05 }}
@@ -850,9 +1004,9 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                           ...formData,
                           additional_costs: [...formData.additional_costs, { name: "", amount: 0 }]
                         })}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm"
+                        className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition-colors text-sm font-medium"
                       >
-                        افزودن هزینه اضافی
+                        + افزودن هزینه اضافی
                       </motion.button>
                     </div>
 
@@ -926,18 +1080,24 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                   </div>
 
                   <div>
-                    <div className="flex justify-between items-center mb-4">
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    <div className="flex items-center gap-2 mb-4">
+                      <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                      <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
                         {translations.items} <span className="text-red-500">*</span>
                       </label>
+                    </div>
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">محصولات و مقادیر خریداری شده</span>
                       <motion.button
                         type="button"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={addItem}
-                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm"
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors text-sm font-medium"
                       >
-                        {translations.addItem}
+                        + {translations.addItem}
                       </motion.button>
                     </div>
 
@@ -1105,7 +1265,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                     </div>
 
                     {formData.items.length > 0 && (
-                      <div className="mt-4 p-4 bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 rounded-xl">
+                      <div className="mt-4 p-4 bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 rounded-xl border border-purple-200/50 dark:border-purple-700/30">
                         <div className="flex justify-between items-center">
                           <span className="text-lg font-bold text-gray-900 dark:text-white">
                             {translations.totalAmount}:
@@ -1118,7 +1278,109 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                     )}
                   </div>
 
-                  <div className="flex gap-3 pt-4">
+                  {/* Initial payment section - only when creating new purchase */}
+                  {!editingPurchase && (
+                    <div className="p-5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/60 dark:border-emerald-700/40">
+                      <div className="flex items-center gap-2 mb-4">
+                        <svg className="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">{translations.initialPaymentOptional}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentAmount}</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={initialPaymentFormData.amount}
+                            onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, amount: e.target.value })}
+                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                            placeholder="0"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentCurrency}</label>
+                          <select
+                            value={initialPaymentFormData.currency}
+                            onChange={(e) => {
+                              const name = e.target.value;
+                              const cur = currencies.find(c => c.name === name);
+                              setInitialPaymentFormData({
+                                ...initialPaymentFormData,
+                                currency: name,
+                                rate: cur?.rate?.toString() || "1",
+                                account_id: "",
+                              });
+                            }}
+                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                            dir="rtl"
+                          >
+                            <option value="">انتخاب ارز</option>
+                            {currencies.map((c) => (
+                              <option key={c.id} value={c.name}>{c.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">حساب {translations.optional}</label>
+                          <select
+                            value={initialPaymentFormData.account_id}
+                            onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, account_id: e.target.value })}
+                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all disabled:opacity-50"
+                            dir="rtl"
+                            disabled={!initialPaymentFormData.currency}
+                          >
+                            <option value="">انتخاب حساب</option>
+                            {getFilteredAccountsForInitialPayment().map((acc) => (
+                              <option key={acc.id} value={acc.id}>{acc.name} {acc.account_code ? `(${acc.account_code})` : ""}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentRate}</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={initialPaymentFormData.rate}
+                            onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, rate: e.target.value })}
+                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                            dir="ltr"
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-4 flex items-center gap-4">
+                        <div className="flex-1">
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentDate}</label>
+                          <PersianDatePicker
+                            value={initialPaymentFormData.date}
+                            onChange={(date) => setInitialPaymentFormData({ ...initialPaymentFormData, date })}
+                            placeholder={translations.placeholders.date}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentNotes}</label>
+                          <input
+                            type="text"
+                            value={initialPaymentFormData.notes}
+                            onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, notes: e.target.value })}
+                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                            placeholder={translations.placeholders.notes}
+                            dir="rtl"
+                          />
+                        </div>
+                        {parseFloat(initialPaymentFormData.amount) > 0 && (
+                          <div className="px-4 py-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-300/50 dark:border-emerald-700/50">
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{translations.paymentTotal}: </span>
+                            <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{parseFloat(initialPaymentFormData.total || "0").toLocaleString("en-US")} افغانی</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                     <motion.button
                       type="button"
                       whileHover={{ scale: 1.05 }}
