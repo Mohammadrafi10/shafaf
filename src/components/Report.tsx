@@ -11,6 +11,7 @@ import {
   generateProductReport,
   generateCustomerReport,
   generateSupplierReport,
+  generateProfitReport,
   type ReportData,
 } from "../utils/report";
 import { exportReportToPDF, exportReportToExcel } from "../utils/reportExport";
@@ -27,7 +28,8 @@ type ReportType =
   | "accounts"
   | "products"
   | "customers"
-  | "suppliers";
+  | "suppliers"
+  | "profit";
 
 const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "sales", label: "گزارش فروشات" },
@@ -37,6 +39,7 @@ const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "products", label: "گزارش محصولات" },
   { value: "customers", label: "گزارش مشتریان" },
   { value: "suppliers", label: "گزارش تمویل‌کنندگان" },
+  { value: "profit", label: "گزارش سود" },
 ];
 
 const DATE_PRESETS: { id: string; label: string; getRange: () => { from: string; to: string } }[] = [
@@ -90,6 +93,8 @@ const DATE_PRESETS: { id: string; label: string; getRange: () => { from: string;
   },
 ];
 
+type ProfitGroupBy = "none" | "product" | "month";
+
 export default function Report({ onBack }: ReportProps) {
   const [reportType, setReportType] = useState<ReportType>("sales");
   const [fromDate, setFromDate] = useState<string>(moment().subtract(30, "days").format("YYYY-MM-DD"));
@@ -98,6 +103,8 @@ export default function Report({ onBack }: ReportProps) {
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [includeExpenses, setIncludeExpenses] = useState(true);
+  const [profitGroupBy, setProfitGroupBy] = useState<ProfitGroupBy>("none");
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +149,12 @@ export default function Report({ onBack }: ReportProps) {
           break;
         case "suppliers":
           data = await generateSupplierReport(from, to);
+          break;
+        case "profit":
+          data = await generateProfitReport(from, to, {
+            includeExpenses,
+            groupBy: profitGroupBy,
+          });
           break;
         default:
           throw new Error("نوع گزارش نامعتبر است");
@@ -291,6 +304,38 @@ export default function Report({ onBack }: ReportProps) {
                 ))}
               </div>
             </div>
+
+            {/* Profit report: advanced options */}
+            {reportType === "profit" && (
+              <div className="space-y-4 p-4 rounded-xl bg-purple-50/50 dark:bg-purple-900/20 border border-purple-200/50 dark:border-purple-700/30">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  گزینه‌های پیشرفته
+                </label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={includeExpenses}
+                      onChange={(e) => setIncludeExpenses(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300">شامل مصارف</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-700 dark:text-gray-300">نمایش تفکیکی:</span>
+                    <select
+                      value={profitGroupBy}
+                      onChange={(e) => setProfitGroupBy(e.target.value as ProfitGroupBy)}
+                      className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-purple-500"
+                    >
+                      <option value="none">بدون تفکیک</option>
+                      <option value="product">بر اساس محصول</option>
+                      <option value="month">بر اساس ماه</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Generate Button */}
             <motion.button

@@ -775,3 +775,259 @@ export async function generateSupplierReport(
     ],
   };
 }
+
+export type ProfitReportOptions = {
+  includeExpenses?: boolean;
+  groupBy?: "none" | "product" | "month";
+};
+
+/**
+ * Generate Profit Report filtered by date range
+ * Revenue = sales.base_amount, Cost = purchases.total_amount, Gross = Revenue - Cost
+ * Net = Gross - Expenses when includeExpenses is true
+ */
+export async function generateProfitReport(
+  fromDate: string,
+  toDate: string,
+  options?: ProfitReportOptions
+): Promise<ReportData> {
+  const from = fromDate;
+  const to = toDate;
+  const includeExpenses = options?.includeExpenses !== false;
+  const groupBy = options?.groupBy ?? "none";
+
+  // Totals: sales (revenue), purchases (cost), expenses
+  const salesTotalQuery = `
+    SELECT COALESCE(SUM(base_amount), 0) as total
+    FROM sales WHERE date >= ? AND date <= ?
+  `;
+  const purchasesTotalQuery = `
+    SELECT COALESCE(SUM(total_amount), 0) as total
+    FROM purchases WHERE date >= ? AND date <= ?
+  `;
+  const expensesTotalQuery = `
+    SELECT COALESCE(SUM(total), 0) as total
+    FROM expenses WHERE date >= ? AND date <= ?
+  `;
+
+  const [salesResult, purchasesResult, expensesResult] = await Promise.all([
+    queryDatabase(salesTotalQuery, [from, to]),
+    queryDatabase(purchasesTotalQuery, [from, to]),
+    includeExpenses ? queryDatabase(expensesTotalQuery, [from, to]) : Promise.resolve(null),
+  ]);
+
+  const revenue = (resultToObjects(salesResult)[0] as any)?.total ?? 0;
+  const cost = (resultToObjects(purchasesResult)[0] as any)?.total ?? 0;
+  const expensesTotal = includeExpenses && expensesResult
+    ? (resultToObjects(expensesResult)[0] as any)?.total ?? 0
+    : 0;
+
+  const grossProfit = revenue - cost;
+  const netProfit = grossProfit - expensesTotal;
+  const marginGross = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+  const marginNet = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+
+  const summaryData: { label: string; value: string }[] = [
+    { label: "درآمد", value: formatPersianNumber(revenue) },
+    { label: "هزینه خرید", value: formatPersianNumber(cost) },
+    { label: "سود ناخالص", value: formatPersianNumber(grossProfit) },
+  ];
+  if (includeExpenses) {
+    summaryData.push({ label: "مصارف", value: formatPersianNumber(expensesTotal) });
+    summaryData.push({ label: "سود خالص", value: formatPersianNumber(netProfit) });
+    summaryData.push({
+      label: "درصد سود (خالص)",
+      value: revenue > 0 ? `${formatPersianNumber(Math.round(marginNet * 10) / 10)}٪` : "-",
+    });
+  } else {
+    summaryData.push({
+      label: "درصد سود",
+      value: revenue > 0 ? `${formatPersianNumber(Math.round(marginGross * 10) / 10)}٪` : "-",
+    });
+  }
+
+  const sections: ReportSection[] = [
+    {
+      title: "خلاصه گزارش",
+      type: "summary",
+      data: summaryData,
+    },
+  ];
+
+  if (groupBy === "product") {
+    const productSalesQuery = `
+      SELECT
+        p.id as product_id,
+        p.name as product_name,
+        COALESCE(SUM(si.total), 0) as total_sales_amount
+      FROM sale_items si
+      JOIN sales s ON si.sale_id = s.id
+      JOIN products p ON si.product_id = p.id
+      WHERE s.date >= ? AND s.date <= ?
+      GROUP BY p.id, p.name
+    `;
+    const productPurchasesQuery = `
+      SELECT
+        p.id as product_id,
+        p.name as product_name,
+        COALESCE(SUM(pi.total), 0) as total_purchase_amount
+      FROM purchase_items pi
+      JOIN purchases pur ON pi.purchase_id = pur.id
+      JOIN products p ON pi.product_id = p.id
+      WHERE pur.date >= ? AND pur.date <= ?
+      GROUP BY p.id, p.name
+    `;
+    const [productSalesRes, productPurchasesRes] = await Promise.all([
+      queryDatabase(productSalesQuery, [from, to]),
+      queryDatabase(productPurchasesQuery, [from, to]),
+    ]);
+    const productSalesList = resultToObjects(productSalesRes) as any[];
+    const productPurchasesList = resultToObjects(productPurchasesRes) as any[];
+
+    const salesByProduct: Record<number, { name: string; sales: number }> = {};
+    productSalesList.forEach((row: any) => {
+      salesByProduct[row.product_id] = { name: row.product_name, sales: row.total_sales_amount || 0 };
+    });
+    const purchasesByProduct: Record<number, number> = {};
+    productPurchasesList.forEach((row: any) => {
+      purchasesByProduct[row.product_id] = row.total_purchase_amount || 0;
+    });
+
+    const allProductIds = new Set([
+      ...Object.keys(salesByProduct).map(Number),
+      ...Object.keys(purchasesByProduct).map(Number),
+    ]);
+    const productRows = Array.from(allProductIds).map((productId) => {
+      const salesRow = salesByProduct[productId];
+      const purchaseRow = productPurchasesList.find((p: any) => p.product_id === productId);
+      const purchaseCost = purchasesByProduct[productId] ?? 0;
+      const salesAmount = salesRow?.sales ?? 0;
+      const productName = salesRow?.name ?? purchaseRow?.product_name ?? "-";
+      const profit = salesAmount - purchaseCost;
+      const marginPct = salesAmount > 0 ? (profit / salesAmount) * 100 : 0;
+      return {
+        product_name: productName,
+        sales_formatted: formatPersianNumber(salesAmount),
+        purchases_formatted: formatPersianNumber(purchaseCost),
+        profit_formatted: formatPersianNumber(profit),
+        margin_formatted: salesAmount > 0 ? `${formatPersianNumber(Math.round(marginPct * 10) / 10)}٪` : "-",
+      };
+    });
+
+    sections.push({
+      title: "سود بر اساس محصول",
+      type: "table",
+      columns: [
+        { key: "product_name", label: "محصول" },
+        { key: "sales_formatted", label: "درآمد" },
+        { key: "purchases_formatted", label: "هزینه" },
+        { key: "profit_formatted", label: "سود" },
+        { key: "margin_formatted", label: "درصد سود" },
+      ],
+      data: productRows,
+    });
+  }
+
+  if (groupBy === "month") {
+    const monthSalesQuery = `
+      SELECT strftime('%Y-%m', date) as month, COALESCE(SUM(base_amount), 0) as total
+      FROM sales WHERE date >= ? AND date <= ?
+      GROUP BY strftime('%Y-%m', date) ORDER BY month
+    `;
+    const monthPurchasesQuery = `
+      SELECT strftime('%Y-%m', date) as month, COALESCE(SUM(total_amount), 0) as total
+      FROM purchases WHERE date >= ? AND date <= ?
+      GROUP BY strftime('%Y-%m', date) ORDER BY month
+    `;
+    const monthExpensesQuery = includeExpenses
+      ? `
+      SELECT strftime('%Y-%m', date) as month, COALESCE(SUM(total), 0) as total
+      FROM expenses WHERE date >= ? AND date <= ?
+      GROUP BY strftime('%Y-%m', date) ORDER BY month
+    `
+      : null;
+
+    const [monthSalesRes, monthPurchasesRes, monthExpensesRes] = await Promise.all([
+      queryDatabase(monthSalesQuery, [from, to]),
+      queryDatabase(monthPurchasesQuery, [from, to]),
+      monthExpensesQuery ? queryDatabase(monthExpensesQuery, [from, to]) : Promise.resolve(null),
+    ]);
+
+    const monthSales = (resultToObjects(monthSalesRes) as any[]).reduce((acc: Record<string, number>, r: any) => {
+      acc[r.month] = r.total ?? 0;
+      return acc;
+    }, {});
+    const monthPurchases = (resultToObjects(monthPurchasesRes) as any[]).reduce((acc: Record<string, number>, r: any) => {
+      acc[r.month] = r.total ?? 0;
+      return acc;
+    }, {});
+    const monthExpenses: Record<string, number> = {};
+    if (monthExpensesRes) {
+      (resultToObjects(monthExpensesRes) as any[]).forEach((r: any) => {
+        monthExpenses[r.month] = r.total ?? 0;
+      });
+    }
+
+    const allMonths = new Set([
+      ...Object.keys(monthSales),
+      ...Object.keys(monthPurchases),
+      ...Object.keys(monthExpenses),
+    ]);
+    const monthRows = Array.from(allMonths)
+      .sort()
+      .map((month) => {
+        const rev = monthSales[month] ?? 0;
+        const costM = monthPurchases[month] ?? 0;
+        const expM = monthExpenses[month] ?? 0;
+        const grossM = rev - costM;
+        const netM = grossM - expM;
+        const monthDisplay = month ? georgianToPersian(month + "-01") : "-";
+        const monthLabel = monthDisplay ? monthDisplay.slice(0, 7) : month;
+        return {
+          month_label: monthLabel,
+          revenue_formatted: formatPersianNumber(rev),
+          cost_formatted: formatPersianNumber(costM),
+          gross_formatted: formatPersianNumber(grossM),
+          ...(includeExpenses
+            ? {
+                expenses_formatted: formatPersianNumber(expM),
+                net_formatted: formatPersianNumber(netM),
+              }
+            : {}),
+        };
+      });
+
+    const monthColumns = [
+      { key: "month_label", label: "ماه" },
+      { key: "revenue_formatted", label: "درآمد" },
+      { key: "cost_formatted", label: "هزینه خرید" },
+      { key: "gross_formatted", label: "سود ناخالص" },
+    ];
+    if (includeExpenses) {
+      monthColumns.push({ key: "expenses_formatted", label: "مصارف" });
+      monthColumns.push({ key: "net_formatted", label: "سود خالص" });
+    }
+    sections.push({
+      title: "سود بر اساس ماه",
+      type: "table",
+      columns: monthColumns,
+      data: monthRows,
+    });
+  }
+
+  return {
+    title: "گزارش سود",
+    type: "profit",
+    dateRange: { from, to },
+    summary: {
+      revenue,
+      cost,
+      grossProfit,
+      expensesTotal: includeExpenses ? expensesTotal : undefined,
+      netProfit: includeExpenses ? netProfit : undefined,
+      marginGross: revenue > 0 ? marginGross : undefined,
+      marginNet: revenue > 0 && includeExpenses ? marginNet : undefined,
+    },
+    sections,
+  };
+}
