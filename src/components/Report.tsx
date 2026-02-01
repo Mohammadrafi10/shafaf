@@ -14,7 +14,7 @@ import {
   generateProfitReport,
   type ReportData,
 } from "../utils/report";
-import { exportReportToPDF, exportReportToExcel } from "../utils/reportExport";
+import { exportReportToExcel } from "../utils/reportExport";
 import { georgianToPersian } from "../utils/date";
 
 interface ReportProps {
@@ -101,7 +101,6 @@ export default function Report({ onBack }: ReportProps) {
   const [toDate, setToDate] = useState<string>(moment().format("YYYY-MM-DD"));
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState<ReportData | null>(null);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [includeExpenses, setIncludeExpenses] = useState(true);
   const [profitGroupBy, setProfitGroupBy] = useState<ProfitGroupBy>("none");
@@ -178,22 +177,12 @@ export default function Report({ onBack }: ReportProps) {
     }
   };
 
-  const handleExportPDF = async () => {
-    if (!reportData || !reportRef.current) {
+  const handlePrint = () => {
+    if (!reportData) {
       toast.error("ابتدا گزارش را تولید کنید");
       return;
     }
-
-    setIsExportingPdf(true);
-    try {
-      await exportReportToPDF(reportData, reportRef.current);
-      toast.success("PDF با موفقیت دانلود شد");
-    } catch (error: any) {
-      console.error("Error exporting PDF:", error);
-      toast.error(`خطا در تولید PDF: ${error.message || "خطای نامشخص"}`);
-    } finally {
-      setIsExportingPdf(false);
-    }
+    window.print();
   };
 
   const handleExportExcel = async () => {
@@ -216,13 +205,26 @@ export default function Report({ onBack }: ReportProps) {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950"
+      className="report-page-wrapper min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950"
       dir="rtl"
     >
+      <style>{`
+        @media print {
+          .report-page-wrapper { background: white !important; }
+          .report-page-wrapper .no-print { display: none !important; }
+          .report-page-wrapper [data-pdf-root] {
+            box-shadow: none !important;
+            border: 1px solid #e5e7eb !important;
+            background: white !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
       <div className="max-w-6xl mx-auto px-6 py-8">
         <motion.button
           onClick={onBack}
-          className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 mb-6"
+          className="no-print flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 mb-6"
           whileHover={{ x: 4 }}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -234,7 +236,7 @@ export default function Report({ onBack }: ReportProps) {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl border border-purple-200/50 dark:border-purple-800/30 shadow-xl p-6 mb-8"
+          className="no-print bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl border border-purple-200/50 dark:border-purple-800/30 shadow-xl p-6 mb-8"
         >
           <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-6">
             سیستم گزارش‌گیری
@@ -355,7 +357,7 @@ export default function Report({ onBack }: ReportProps) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex flex-col items-center justify-center py-16"
+            className="no-print flex flex-col items-center justify-center py-16"
           >
             <motion.div
               animate={{ rotate: 360 }}
@@ -371,13 +373,12 @@ export default function Report({ onBack }: ReportProps) {
           <>
             <div className="no-print flex flex-wrap gap-2 mb-4">
               <motion.button
-                onClick={handleExportPDF}
-                disabled={isExportingPdf}
-                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium"
+                onClick={handlePrint}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                {isExportingPdf ? "در حال آماده‌سازی…" : "خروجی PDF"}
+                چاپ
               </motion.button>
               <motion.button
                 onClick={handleExportExcel}

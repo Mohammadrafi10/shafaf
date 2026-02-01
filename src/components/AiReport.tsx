@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import ReactApexChart from "react-apexcharts";
 import type { ApexOptions } from "apexcharts";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
 import toast from "react-hot-toast";
 import * as XLSX from "xlsx";
 import moment from "moment-jalaali";
@@ -158,7 +156,6 @@ export default function AiReport({ onBack }: AiReportProps) {
   const [model, setModel] = useState("");
   const [datePreset, setDatePreset] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
@@ -263,146 +260,12 @@ export default function AiReport({ onBack }: AiReportProps) {
     runReport(t, { isRefinement: true });
   };
 
-  const handleExportPDF = async () => {
-    if (!reportRef.current || !report) {
-      toast.error("خطا در تولید PDF");
+  const handlePrint = () => {
+    if (!report) {
+      toast.error("ابتدا گزارش را تولید کنید");
       return;
     }
-    let actionButtons: Element | null = null;
-    let styleElement: HTMLStyleElement | null = null;
-    const elementsToFix: Array<{ element: HTMLElement; originalClasses: string; originalStyle: string }> = [];
-    try {
-      setIsExportingPdf(true);
-      actionButtons = document.querySelector(".no-print");
-      if (actionButtons) (actionButtons as HTMLElement).style.display = "none";
-
-      const styleId = "pdf-export-oklch-fix";
-      styleElement = document.getElementById(styleId) as HTMLStyleElement | null;
-      if (!styleElement) {
-        styleElement = document.createElement("style");
-        styleElement.id = styleId;
-        styleElement.textContent = `
-          * { background-image: none !important; }
-          [class*="gradient"], [class*="from-"], [class*="to-"] {
-            background: #3b82f6 !important; background-color: #3b82f6 !important; background-image: none !important;
-          }
-        `;
-        document.head.appendChild(styleElement);
-      }
-
-      if (reportRef.current) {
-        reportRef.current.querySelectorAll("*").forEach((el) => {
-          const htmlEl = el as HTMLElement;
-          const computedStyle = window.getComputedStyle(htmlEl);
-          const bg = computedStyle.background || computedStyle.backgroundColor || "";
-          if (bg.includes("oklch") || /gradient|from-|to-/.test(htmlEl.className || "")) {
-            elementsToFix.push({ element: htmlEl, originalClasses: htmlEl.className, originalStyle: htmlEl.style.cssText });
-            htmlEl.style.background = "#f8fafc";
-            htmlEl.style.backgroundColor = "#f8fafc";
-            htmlEl.style.backgroundImage = "none";
-            htmlEl.className = (htmlEl.className || "").split(" ").filter((c) => !/gradient|from-|to-|hover:(from|to)-/.test(c)).join(" ");
-          }
-        });
-      }
-
-      await new Promise((r) => setTimeout(r, 250));
-
-      const PDF_STYLE = `
-        * { background-image: none !important; box-sizing: border-box !important; }
-        [class*="gradient"], [class*="from-"], [class*="to-"] { background: #e5e7eb !important; background-color: #e5e7eb !important; }
-        html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; width: 210mm !important; overflow: visible !important; }
-        [data-pdf-root] { width: 210mm !important; max-width: 100% !important; margin: 0 auto !important; padding: 15mm !important; background: #fff !important; }
-        [data-pdf-root] h2 { font-size: 18pt !important; margin: 0 0 10px 0 !important; color: #111 !important; }
-        [data-pdf-root] h3 { font-size: 14pt !important; margin: 14px 0 8px 0 !important; color: #333 !important; }
-        [data-pdf-root] p { font-size: 11pt !important; margin: 0 0 8px 0 !important; color: #444 !important; line-height: 1.5 !important; }
-        [data-pdf-root] table { width: 100% !important; border-collapse: collapse !important; font-size: 10pt !important; table-layout: auto !important; }
-        [data-pdf-root] th, [data-pdf-root] td { border: 1px solid #ccc !important; padding: 8px 10px !important; text-align: right !important; color: #222 !important; }
-        [data-pdf-root] th { background: #f5f5f5 !important; font-weight: 600 !important; }
-        [data-pdf-root] [class*="overflow-x-auto"] { overflow: visible !important; }
-      `;
-
-      let canvas: HTMLCanvasElement;
-      try {
-        canvas = await html2canvas(reportRef.current, {
-          scale: 3,
-          useCORS: true,
-          logging: false,
-          backgroundColor: "#ffffff",
-          onclone: (clonedDoc) => {
-            clonedDoc.querySelectorAll("style").forEach((s) => {
-              if (s.textContent?.includes("oklch")) s.remove();
-            });
-            const pdfStyle = clonedDoc.createElement("style");
-            pdfStyle.textContent = PDF_STYLE;
-            const target = clonedDoc.head || clonedDoc.documentElement;
-            if (target) target.insertBefore(pdfStyle, target.firstChild);
-          },
-        });
-      } catch (err) {
-        console.warn("html2canvas failed, trying simplified clone", err);
-        const clone = reportRef.current.cloneNode(true) as HTMLElement;
-        clone.style.position = "absolute";
-        clone.style.left = "-9999px";
-        clone.style.top = "0";
-        clone.style.width = "210mm";
-        clone.style.background = "#fff";
-        clone.querySelectorAll("*").forEach((el) => {
-          const htmlEl = el as HTMLElement;
-          if (/gradient|from-|to-/.test(htmlEl.className || "")) {
-            htmlEl.className = (htmlEl.className || "").split(" ").filter((c) => !/gradient|from-|to-|hover/.test(c)).join(" ");
-            htmlEl.style.background = "#e5e7eb";
-            htmlEl.style.backgroundColor = "#e5e7eb";
-            htmlEl.style.backgroundImage = "none";
-          }
-        });
-        document.body.appendChild(clone);
-        const override = document.createElement("style");
-        override.id = "pdf-fallback-override";
-        override.textContent = PDF_STYLE;
-        document.head.appendChild(override);
-        try {
-          canvas = await html2canvas(clone, { scale: 3, useCORS: true, logging: false, backgroundColor: "#ffffff" });
-        } finally {
-          document.body.removeChild(clone);
-          const o = document.getElementById("pdf-fallback-override");
-          if (o) o.remove();
-        }
-      }
-
-      const imgWidthMm = 210;
-      const totalHeightMm = (canvas.height / canvas.width) * imgWidthMm;
-      const pageHeightMm = 297;
-      const numPages = Math.ceil(totalHeightMm / pageHeightMm);
-
-      const pdf = new jsPDF("p", "mm", "a4");
-      for (let i = 0; i < numPages; i++) {
-        if (i > 0) pdf.addPage();
-        const ySrc = (i * pageHeightMm / totalHeightMm) * canvas.height;
-        const hSrc = Math.min((pageHeightMm / totalHeightMm) * canvas.height, canvas.height - ySrc);
-        const imgHeightMm = Math.min(pageHeightMm, (hSrc / canvas.width) * imgWidthMm);
-        const temp = document.createElement("canvas");
-        temp.width = canvas.width;
-        temp.height = hSrc;
-        const ctx = temp.getContext("2d")!;
-        ctx.drawImage(canvas, 0, ySrc, canvas.width, hSrc, 0, 0, canvas.width, hSrc);
-        pdf.addImage(temp.toDataURL("image/png"), "PNG", 0, 0, imgWidthMm, imgHeightMm);
-      }
-
-      const dateStr = new Date().toISOString().slice(0, 10);
-      pdf.save(`گزارش-هوشمند-${sanitizeFilename(report.title)}-${dateStr}.pdf`);
-      toast.success("PDF با موفقیت دانلود شد");
-    } catch (err) {
-      console.error("Error exporting PDF:", err);
-      toast.error("خطا در تولید PDF");
-    } finally {
-      elementsToFix.forEach(({ element, originalClasses, originalStyle }) => {
-        element.className = originalClasses;
-        element.style.cssText = originalStyle;
-      });
-      if (styleElement?.parentNode) styleElement.parentNode.removeChild(styleElement);
-      if (actionButtons) (actionButtons as HTMLElement).style.display = "";
-      setIsExportingPdf(false);
-    }
+    window.print();
   };
 
   const handleExportExcel = () => {
@@ -456,11 +319,24 @@ export default function AiReport({ onBack }: AiReportProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950" dir="rtl">
+    <div className="ai-report-page-wrapper min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950" dir="rtl">
+      <style>{`
+        @media print {
+          .ai-report-page-wrapper { background: white !important; }
+          .ai-report-page-wrapper .no-print { display: none !important; }
+          .ai-report-page-wrapper [data-pdf-root] {
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
       <div className="max-w-4xl mx-auto px-6 py-8">
         <motion.button
           onClick={onBack}
-          className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 mb-6"
+          className="no-print flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 mb-6"
           whileHover={{ x: 4 }}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -472,7 +348,7 @@ export default function AiReport({ onBack }: AiReportProps) {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl border border-purple-200/50 dark:border-purple-800/30 shadow-xl p-6 mb-8"
+          className="no-print bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl border border-purple-200/50 dark:border-purple-800/30 shadow-xl p-6 mb-8"
         >
           <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-4">
             گزارش هوشمند (AI)
@@ -590,7 +466,7 @@ export default function AiReport({ onBack }: AiReportProps) {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 rounded-2xl bg-white/60 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700"
+            className="no-print mb-6 p-4 rounded-2xl bg-white/60 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700"
           >
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">تاریخچه</h3>
             <ul className="space-y-1.5">
@@ -623,7 +499,7 @@ export default function AiReport({ onBack }: AiReportProps) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex flex-col items-center justify-center py-16"
+            className="no-print flex flex-col items-center justify-center py-16"
           >
             <motion.div
               animate={{ rotate: 360 }}
@@ -638,7 +514,7 @@ export default function AiReport({ onBack }: AiReportProps) {
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-4 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800"
+            className="no-print p-4 rounded-2xl bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800"
           >
             {error}
           </motion.div>
@@ -648,13 +524,12 @@ export default function AiReport({ onBack }: AiReportProps) {
           <>
             <div className="no-print flex flex-wrap gap-2 mb-4">
               <motion.button
-                onClick={handleExportPDF}
-                disabled={isExportingPdf}
-                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-medium"
+                onClick={handlePrint}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-medium"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                {isExportingPdf ? "در حال آماده‌سازی…" : "خروجی PDF"}
+                چاپ
               </motion.button>
               <motion.button
                 onClick={handleExportExcel}
