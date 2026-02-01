@@ -50,6 +50,14 @@ export async function backupDatabase(): Promise<string> {
 }
 
 /**
+ * Create a daily backup in the app data folder (backups subfolder). Used by the automatic daily backup scheduler.
+ * @returns Promise with the backup file path
+ */
+export async function createDailyBackup(): Promise<string> {
+  return await invoke<string>("create_daily_backup");
+}
+
+/**
  * Restore database from backup file
  * @param backupPath Path to the backup database file
  * @returns Promise with success message

@@ -4,6 +4,8 @@ mod server;
 
 use db::Database;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
@@ -95,6 +97,30 @@ fn backup_database(app: AppHandle) -> Result<String, String> {
     
     // Return the database path - frontend will use dialog plugin to save
     Ok(db_path.to_string_lossy().to_string())
+}
+
+/// Create a daily backup in the app data folder (backups subfolder). Called by the frontend scheduler after login.
+#[tauri::command]
+fn create_daily_backup(app: AppHandle) -> Result<String, String> {
+    let db_path = get_db_path(&app, "")?;
+
+    if !db_path.exists() {
+        return Err("Database file does not exist".to_string());
+    }
+
+    let data_dir = db_path
+        .parent()
+        .ok_or_else(|| "Invalid database path".to_string())?;
+    let backups_dir = data_dir.join("backups");
+    fs::create_dir_all(&backups_dir).map_err(|e: io::Error| format!("Failed to create backups dir: {}", e))?;
+
+    let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let backup_name = format!("db-backup-{}.sqlite", date_str);
+    let backup_path = backups_dir.join(&backup_name);
+
+    fs::copy(&db_path, &backup_path).map_err(|e: io::Error| format!("Failed to copy database: {}", e))?;
+
+    Ok(backup_path.to_string_lossy().to_string())
 }
 
 /// Create a new SQLite database file (creates database automatically on open)
@@ -8533,6 +8559,7 @@ pub fn run() {
             db_query,
             get_database_path,
             backup_database,
+            create_daily_backup,
             init_users_table,
             register_user,
             login_user,

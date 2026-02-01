@@ -5,6 +5,7 @@ import {
   isDatabaseOpen,
   backupDatabase,
   restoreDatabase,
+  createDailyBackup,
 } from "./utils/db";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
@@ -141,6 +142,31 @@ function App() {
     const cleanup = startCredentialSync(5000); // Check every 5 seconds
     return cleanup;
   }, []);
+
+  // Daily database backup: start when user logs in, run once after delay then every 24 hours
+  useEffect(() => {
+    if (!user) return;
+
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const INITIAL_DELAY_MS = 60 * 1000; // 1 minute after login so DB is open
+
+    const runBackup = async () => {
+      try {
+        const path = await createDailyBackup();
+        console.log("Daily backup completed:", path);
+      } catch (err) {
+        console.error("Daily backup failed:", err);
+      }
+    };
+
+    const initialTimer = window.setTimeout(runBackup, INITIAL_DELAY_MS);
+    const intervalId = window.setInterval(runBackup, ONE_DAY_MS);
+
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(intervalId);
+    };
+  }, [user]);
 
   // Check license validity on mount
   useEffect(() => {
