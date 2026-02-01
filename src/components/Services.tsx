@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import {
     initServicesTable,
     createService,
+    createServicePayment,
     getServices,
     getService,
     updateService,
@@ -16,6 +17,7 @@ import {
 } from "../utils/service";
 import { getCustomers, type Customer } from "../utils/customer";
 import { getCurrencies, type Currency } from "../utils/currency";
+import { getAccounts, type Account } from "../utils/account";
 import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import PersianDatePicker from "./PersianDatePicker";
@@ -73,16 +75,27 @@ const translations = {
         noPayments: "هیچ پرداختی ثبت نشده است",
         amount: "مبلغ",
         date: "تاریخ",
+        addPayment: "ثبت پرداخت",
+        service: "خدمت",
+        accountOptional: "حساب (برای واریز)",
+        serviceRequired: "انتخاب خدمت الزامی است",
+        amountRequired: "مقدار الزامی است",
+        dateRequired: "تاریخ الزامی است",
+        paymentCreated: "پرداخت با موفقیت ثبت شد",
+        paymentError: "خطا در ثبت پرداخت",
     },
-    navigateToPayments: "پرداخت خدمات",
+    placeholdersPayment: {
+        service: "خدمت را انتخاب کنید",
+        amount: "مقدار را وارد کنید",
+        account: "حساب برای واریز (اختیاری)",
+    },
 };
 
 interface ServicesManagementProps {
     onBack?: () => void;
-    onNavigateToPaymentPage?: () => void;
 }
 
-export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: ServicesManagementProps) {
+export default function ServicesManagement({ onBack }: ServicesManagementProps) {
     const [services, setServices] = useState<Service[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [currencies, setCurrencies] = useState<Currency[]>([]);
@@ -106,6 +119,14 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
         items: [] as ServiceItemInput[],
     });
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [paymentFormData, setPaymentFormData] = useState({
+        service_id: "",
+        amount: "",
+        date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split("T")[0],
+        account_id: "",
+    });
+    const [accounts, setAccounts] = useState<Account[]>([]);
 
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(10);
@@ -130,15 +151,17 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
             } catch (err) {
                 console.log("Table initialization:", err);
             }
-            const [servicesResponse, customersResponse, currenciesData] = await Promise.all([
+            const [servicesResponse, customersResponse, currenciesData, accountsData] = await Promise.all([
                 getServices(page, perPage, search, sortBy, sortOrder),
                 getCustomers(1, 1000),
                 getCurrencies(),
+                getAccounts(),
             ]);
             setServices(servicesResponse.items);
             setTotalItems(servicesResponse.total);
             setCustomers(customersResponse.items);
             setCurrencies(currenciesData);
+            setAccounts(accountsData || []);
             const base = currenciesData.find((c) => c.base);
             if (base) setBaseCurrency(base);
         } catch (error: unknown) {
@@ -226,7 +249,6 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
 
     const calculateItemTotal = (item: ServiceItemInput) => item.price * item.quantity;
     const calculateTotal = () => formData.items.reduce((sum, item) => sum + calculateItemTotal(item), 0);
-    const calculateRemaining = () => calculateTotal() - formData.paid_amount;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -327,6 +349,72 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
         }
     };
 
+    const openPaymentModal = (presetServiceId?: number) => {
+        setPaymentFormData({
+            service_id: presetServiceId ? String(presetServiceId) : "",
+            amount: "",
+            date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split("T")[0],
+            account_id: "",
+        });
+        setIsPaymentModalOpen(true);
+    };
+
+    const handleClosePaymentModal = () => {
+        setIsPaymentModalOpen(false);
+        setPaymentFormData({
+            service_id: "",
+            amount: "",
+            date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split("T")[0],
+            account_id: "",
+        });
+    };
+
+    const handlePaymentSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!paymentFormData.service_id) {
+            toast.error(translations.payments.serviceRequired);
+            return;
+        }
+        if (!paymentFormData.amount || parseFloat(paymentFormData.amount) <= 0) {
+            toast.error(translations.payments.amountRequired);
+            return;
+        }
+        if (!paymentFormData.date) {
+            toast.error(translations.payments.dateRequired);
+            return;
+        }
+        const service_id = parseInt(paymentFormData.service_id, 10);
+        const service =
+            viewingService?.service.id === service_id
+                ? viewingService.service
+                : services.find((s) => s.id === service_id);
+        const amount = parseFloat(paymentFormData.amount);
+        try {
+            setLoading(true);
+            await createServicePayment(
+                service_id,
+                paymentFormData.account_id ? parseInt(paymentFormData.account_id, 10) : null,
+                service?.currency_id ?? null,
+                service?.exchange_rate ?? 1,
+                amount,
+                paymentFormData.date
+            );
+            toast.success(translations.payments.paymentCreated);
+            handleClosePaymentModal();
+            await loadData();
+            if (viewingService && viewingService.service.id === service_id) {
+                const [srv, items] = await getService(service_id);
+                const payments = await getServicePayments(service_id);
+                setViewingService({ service: srv, items, payments });
+            }
+        } catch (error: unknown) {
+            toast.error(translations.payments.paymentError);
+            console.error("Error saving payment:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const getCustomerName = (customerId: number) =>
         customers.find((c) => c.id === customerId)?.full_name || `ID: ${customerId}`;
 
@@ -421,15 +509,11 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
                     onBack={onBack}
                     backLabel={translations.backToDashboard}
                     actions={[
-                        ...(onNavigateToPaymentPage
-                            ? [
-                                  {
-                                      label: translations.navigateToPayments,
-                                      onClick: onNavigateToPaymentPage,
-                                      variant: "secondary" as const,
-                                  },
-                              ]
-                            : []),
+                        {
+                            label: translations.payments.addPayment,
+                            onClick: () => openPaymentModal(),
+                            variant: "secondary" as const,
+                        },
                         {
                             label: translations.addNew,
                             onClick: () => handleOpenModal(),
@@ -723,42 +807,13 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
                                             )}
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                                                {translations.paidAmount} (اختیاری)
-                                            </label>
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                value={formData.paid_amount || ""}
-                                                onChange={(e) =>
-                                                    setFormData({
-                                                        ...formData,
-                                                        paid_amount: parseFloat(e.target.value) || 0,
-                                                    })
-                                                }
-                                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
-                                                dir="ltr"
-                                            />
-                                        </div>
-                                        <div className="flex items-end">
-                                            <div>
-                                                <span className="text-sm text-gray-600 dark:text-gray-400">
-                                                    جمع کل:{" "}
-                                                </span>
-                                                <span className="font-bold text-purple-700 dark:text-purple-300">
-                                                    {calculateTotal().toLocaleString("en-US")}
-                                                </span>
-                                                <span className="text-sm text-gray-500 mr-1">باقیمانده: </span>
-                                                <span
-                                                    className={`font-bold ${calculateRemaining() > 0 ? "text-red-600" : "text-green-600"}`}
-                                                >
-                                                    {calculateRemaining().toLocaleString("en-US")}
-                                                </span>
-                                            </div>
-                                        </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                                            جمع کل:{" "}
+                                        </span>
+                                        <span className="font-bold text-purple-700 dark:text-purple-300">
+                                            {calculateTotal().toLocaleString("en-US")}
+                                        </span>
                                     </div>
                                     <div className="flex gap-3 pt-4">
                                         <motion.button
@@ -895,20 +950,15 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
                                     )}
                                 </div>
                                 <div className="flex gap-3">
-                                    {onNavigateToPaymentPage && (
-                                        <motion.button
-                                            type="button"
-                                            whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.98 }}
-                                            onClick={() => {
-                                                setIsViewModalOpen(false);
-                                                onNavigateToPaymentPage();
-                                            }}
-                                            className="px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl"
-                                        >
-                                            {translations.navigateToPayments}
-                                        </motion.button>
-                                    )}
+                                    <motion.button
+                                        type="button"
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => openPaymentModal(viewingService.service.id)}
+                                        className="px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl"
+                                    >
+                                        {translations.payments.addPayment}
+                                    </motion.button>
                                     <motion.button
                                         type="button"
                                         whileHover={{ scale: 1.02 }}
@@ -919,6 +969,147 @@ export default function ServicesManagement({ onBack, onNavigateToPaymentPage }: 
                                         {translations.cancel}
                                     </motion.button>
                                 </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Payment Modal */}
+                <AnimatePresence>
+                    {isPaymentModalOpen && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+                            onClick={handleClosePaymentModal}
+                        >
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.9, opacity: 0 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+                            >
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                    {translations.payments.addPayment}
+                                </h2>
+                                <form onSubmit={handlePaymentSubmit} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            {translations.payments.service}
+                                        </label>
+                                        <select
+                                            value={paymentFormData.service_id}
+                                            onChange={(e) =>
+                                                setPaymentFormData({ ...paymentFormData, service_id: e.target.value })
+                                            }
+                                            required
+                                            disabled={!!viewingService}
+                                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200 disabled:opacity-70"
+                                            dir="rtl"
+                                        >
+                                            <option value="">{translations.placeholdersPayment.service}</option>
+                                            {(
+                                                viewingService && !services.some((s) => s.id === viewingService.service.id)
+                                                    ? [viewingService.service, ...services]
+                                                    : services
+                                            ).map((service) => {
+                                                const customer = customers.find((c) => c.id === service.customer_id);
+                                                return (
+                                                    <option key={service.id} value={service.id}>
+                                                        خدمت #{service.id} – {customer ? customer.full_name : "نامشخص"} –{" "}
+                                                        {formatPersianDate(service.date)} –{" "}
+                                                        {service.total_amount.toLocaleString("en-US")}
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            {translations.payments.amount}
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            value={paymentFormData.amount}
+                                            onChange={(e) =>
+                                                setPaymentFormData({ ...paymentFormData, amount: e.target.value })
+                                            }
+                                            required
+                                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                                            placeholder={translations.placeholdersPayment.amount}
+                                            dir="ltr"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            {translations.date}
+                                        </label>
+                                        <PersianDatePicker
+                                            value={paymentFormData.date}
+                                            onChange={(date) =>
+                                                setPaymentFormData({ ...paymentFormData, date })
+                                            }
+                                            placeholder={translations.placeholders.date}
+                                            required
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            {translations.payments.accountOptional}
+                                        </label>
+                                        <select
+                                            value={paymentFormData.account_id}
+                                            onChange={(e) =>
+                                                setPaymentFormData({ ...paymentFormData, account_id: e.target.value })
+                                            }
+                                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                                            dir="rtl"
+                                        >
+                                            <option value="">{translations.placeholdersPayment.account}</option>
+                                            {accounts
+                                                .filter((a) => a.is_active)
+                                                .map((acc) => (
+                                                    <option key={acc.id} value={acc.id}>
+                                                        {acc.name}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                    <div className="flex gap-3 pt-4">
+                                        <motion.button
+                                            type="button"
+                                            whileHover={{ scale: 1.05 }}
+                                            whileTap={{ scale: 0.95 }}
+                                            onClick={handleClosePaymentModal}
+                                            className="flex-1 px-4 py-3 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white font-bold rounded-xl transition-colors"
+                                        >
+                                            {translations.cancel}
+                                        </motion.button>
+                                        <motion.button
+                                            type="submit"
+                                            disabled={loading}
+                                            whileHover={{ scale: loading ? 1 : 1.05 }}
+                                            whileTap={{ scale: loading ? 1 : 0.95 }}
+                                            className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {loading ? (
+                                                <span className="flex items-center justify-center gap-2">
+                                                    <motion.div
+                                                        animate={{ rotate: 360 }}
+                                                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                                                        className="w-5 h-5 border-2 border-white border-t-transparent rounded-full"
+                                                    />
+                                                    {translations.save}
+                                                </span>
+                                            ) : (
+                                                translations.save
+                                            )}
+                                        </motion.button>
+                                    </div>
+                                </form>
                             </motion.div>
                         </motion.div>
                     )}

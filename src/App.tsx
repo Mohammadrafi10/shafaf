@@ -37,7 +37,6 @@ import AccountManagement from "./components/Account";
 import PurchasePaymentManagement from "./components/PurchasePayment";
 import SalesPaymentManagement from "./components/SalesPayment";
 import ServicesManagement from "./components/Services";
-import ServicePaymentManagement from "./components/ServicePayment";
 import AiReport from "./components/AiReport";
 import Report from "./components/Report";
 import AiCreateUpdateModal from "./components/AiCreateUpdateModal";
@@ -430,7 +429,6 @@ function App() {
       <CustomerManagement
         onBack={() => setCurrentPage("dashboard")}
         onNavigateToBalancePage={() => setCurrentPage("salesPayment")}
-        onNavigateToServicePaymentPage={() => setCurrentPage("servicePayment")}
       />
     );
   }
@@ -545,17 +543,7 @@ function App() {
   // Show services page if selected
   if (currentPage === "services") {
     return (
-      <ServicesManagement
-        onBack={() => setCurrentPage("dashboard")}
-        onNavigateToPaymentPage={() => setCurrentPage("servicePayment")}
-      />
-    );
-  }
-
-  // Show service payment page if selected
-  if (currentPage === "servicePayment") {
-    return (
-      <ServicePaymentManagement onBack={() => setCurrentPage("dashboard")} />
+      <ServicesManagement onBack={() => setCurrentPage("dashboard")} />
     );
   }
 
