@@ -4179,6 +4179,727 @@ fn delete_sale_payment(
     Ok("Sale payment deleted successfully".to_string())
 }
 
+// Service Model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Service {
+    pub id: i64,
+    pub customer_id: i64,
+    pub date: String,
+    pub notes: Option<String>,
+    pub currency_id: Option<i64>,
+    pub exchange_rate: f64,
+    pub total_amount: f64,
+    pub base_amount: f64,
+    pub paid_amount: f64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+// ServiceItem Model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceItem {
+    pub id: i64,
+    pub service_id: i64,
+    pub name: String,
+    pub price: f64,
+    pub quantity: f64,
+    pub total: f64,
+    pub created_at: String,
+}
+
+// ServicePayment Model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServicePayment {
+    pub id: i64,
+    pub service_id: i64,
+    pub account_id: Option<i64>,
+    pub currency_id: Option<i64>,
+    pub exchange_rate: f64,
+    pub amount: f64,
+    pub base_amount: f64,
+    pub date: String,
+    pub created_at: String,
+}
+
+/// Initialize services table schema
+#[tauri::command]
+fn init_services_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let create_table_sql = "
+        CREATE TABLE IF NOT EXISTS services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            notes TEXT,
+            currency_id INTEGER,
+            exchange_rate REAL NOT NULL DEFAULT 1,
+            total_amount REAL NOT NULL DEFAULT 0,
+            base_amount REAL NOT NULL DEFAULT 0,
+            paid_amount REAL NOT NULL DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id),
+            FOREIGN KEY (currency_id) REFERENCES currencies(id)
+        )
+    ";
+
+    db.execute(create_table_sql, &[])
+        .map_err(|e| format!("Failed to create services table: {}", e))?;
+
+    let create_items_table_sql = "
+        CREATE TABLE IF NOT EXISTS service_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            price REAL NOT NULL,
+            quantity REAL NOT NULL DEFAULT 1,
+            total REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
+        )
+    ";
+
+    db.execute(create_items_table_sql, &[])
+        .map_err(|e| format!("Failed to create service_items table: {}", e))?;
+
+    let create_payments_table_sql = "
+        CREATE TABLE IF NOT EXISTS service_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id INTEGER NOT NULL,
+            account_id INTEGER,
+            currency_id INTEGER,
+            exchange_rate REAL NOT NULL DEFAULT 1,
+            amount REAL NOT NULL,
+            base_amount REAL NOT NULL DEFAULT 0,
+            date TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+            FOREIGN KEY (account_id) REFERENCES accounts(id),
+            FOREIGN KEY (currency_id) REFERENCES currencies(id)
+        )
+    ";
+
+    db.execute(create_payments_table_sql, &[])
+        .map_err(|e| format!("Failed to create service_payments table: {}", e))?;
+
+    Ok("Services, service_items, and service_payments tables initialized successfully".to_string())
+}
+
+/// Create a new service with items
+#[tauri::command]
+fn create_service(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    customer_id: i64,
+    date: String,
+    notes: Option<String>,
+    currency_id: Option<i64>,
+    exchange_rate: f64,
+    paid_amount: f64,
+    items: Vec<(String, f64, f64)>, // (name, price, quantity)
+) -> Result<Service, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let items_total: f64 = items.iter().map(|(_, price, qty)| price * qty).sum();
+    let total_amount = items_total;
+    let base_amount = total_amount * exchange_rate;
+
+    let notes_str: Option<&str> = notes.as_ref().map(|s| s.as_str());
+    let insert_sql = "INSERT INTO services (customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    db.execute(insert_sql, &[
+        &customer_id as &dyn rusqlite::ToSql,
+        &date as &dyn rusqlite::ToSql,
+        &notes_str as &dyn rusqlite::ToSql,
+        &currency_id as &dyn rusqlite::ToSql,
+        &exchange_rate as &dyn rusqlite::ToSql,
+        &total_amount as &dyn rusqlite::ToSql,
+        &base_amount as &dyn rusqlite::ToSql,
+        &paid_amount as &dyn rusqlite::ToSql,
+    ])
+        .map_err(|e| format!("Failed to insert service: {}", e))?;
+
+    let service_id_sql = "SELECT id FROM services WHERE customer_id = ? AND date = ? ORDER BY id DESC LIMIT 1";
+    let service_ids = db
+        .query(service_id_sql, &[&customer_id as &dyn rusqlite::ToSql, &date as &dyn rusqlite::ToSql], |row| {
+            Ok(row.get::<_, i64>(0)?)
+        })
+        .map_err(|e| format!("Failed to fetch service ID: {}", e))?;
+
+    let service_id = service_ids.first().ok_or("Failed to retrieve service ID")?;
+
+    for (name, price, quantity) in items {
+        let total = price * quantity;
+        let insert_item_sql = "INSERT INTO service_items (service_id, name, price, quantity, total) VALUES (?, ?, ?, ?, ?)";
+        db.execute(insert_item_sql, &[
+            service_id as &dyn rusqlite::ToSql,
+            &name as &dyn rusqlite::ToSql,
+            &price as &dyn rusqlite::ToSql,
+            &quantity as &dyn rusqlite::ToSql,
+            &total as &dyn rusqlite::ToSql,
+        ])
+            .map_err(|e| format!("Failed to insert service item: {}", e))?;
+    }
+
+    let service_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, created_at, updated_at FROM services WHERE id = ?";
+    let services = db
+        .query(service_sql, &[service_id as &dyn rusqlite::ToSql], |row| {
+            Ok(Service {
+                id: row.get(0)?,
+                customer_id: row.get(1)?,
+                date: row.get(2)?,
+                notes: row.get(3)?,
+                currency_id: row.get(4)?,
+                exchange_rate: row.get(5)?,
+                total_amount: row.get(6)?,
+                base_amount: row.get(7)?,
+                paid_amount: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service: {}", e))?;
+
+    if let Some(service) = services.first() {
+        Ok(service.clone())
+    } else {
+        Err("Failed to retrieve created service".to_string())
+    }
+}
+
+/// Get all services with pagination
+#[tauri::command]
+fn get_services(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    page: i64,
+    per_page: i64,
+    search: Option<String>,
+    sort_by: Option<String>,
+    sort_order: Option<String>,
+) -> Result<PaginatedResponse<Service>, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let offset = (page - 1) * per_page;
+
+    let mut where_clause = String::new();
+    let mut params: Vec<serde_json::Value> = Vec::new();
+
+    if let Some(s) = search {
+        if !s.trim().is_empty() {
+            let search_term = format!("%{}%", s);
+            where_clause = "WHERE (CAST(s.date AS TEXT) LIKE ? OR s.notes LIKE ? OR s.customer_id IN (SELECT id FROM customers WHERE full_name LIKE ? OR phone LIKE ?))".to_string();
+            params.push(serde_json::Value::String(search_term.clone()));
+            params.push(serde_json::Value::String(search_term.clone()));
+            params.push(serde_json::Value::String(search_term.clone()));
+            params.push(serde_json::Value::String(search_term));
+        }
+    }
+
+    let count_sql = format!("SELECT COUNT(*) FROM services s {}", where_clause);
+    let total: i64 = db.with_connection(|conn| {
+        let mut stmt = conn.prepare(&count_sql).map_err(|e| anyhow::anyhow!("{}", e))?;
+        let rusqlite_params: Vec<rusqlite::types::Value> = params.iter().map(|v| {
+            match v {
+                serde_json::Value::String(s) => rusqlite::types::Value::Text(s.clone()),
+                _ => rusqlite::types::Value::Null,
+            }
+        }).collect();
+        let count: i64 = stmt.query_row(rusqlite::params_from_iter(rusqlite_params.iter()), |row| row.get(0))
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        Ok(count)
+    }).map_err(|e| format!("Failed to count services: {}", e))?;
+
+    let order_clause = if let Some(sort) = sort_by {
+        let order = sort_order.unwrap_or_else(|| "DESC".to_string());
+        let allowed_cols = ["date", "total_amount", "paid_amount", "created_at"];
+        if allowed_cols.contains(&sort.as_str()) {
+            format!("ORDER BY s.{} {}", sort, if order.to_uppercase() == "DESC" { "DESC" } else { "ASC" })
+        } else {
+            "ORDER BY s.date DESC, s.created_at DESC".to_string()
+        }
+    } else {
+        "ORDER BY s.date DESC, s.created_at DESC".to_string()
+    };
+
+    let sql = format!("SELECT s.id, s.customer_id, s.date, s.notes, s.currency_id, s.exchange_rate, s.total_amount, s.base_amount, s.paid_amount, s.created_at, s.updated_at FROM services s {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
+
+    params.push(serde_json::Value::Number(serde_json::Number::from(per_page)));
+    params.push(serde_json::Value::Number(serde_json::Number::from(offset)));
+
+    let services = db.with_connection(|conn| {
+        let mut stmt = conn.prepare(&sql).map_err(|e| anyhow::anyhow!("{}", e))?;
+        let rusqlite_params: Vec<rusqlite::types::Value> = params.iter().map(|v| {
+            match v {
+                serde_json::Value::String(s) => rusqlite::types::Value::Text(s.clone()),
+                serde_json::Value::Number(n) => rusqlite::types::Value::Integer(n.as_i64().unwrap_or(0)),
+                _ => rusqlite::types::Value::Null,
+            }
+        }).collect();
+
+        let rows = stmt.query_map(rusqlite::params_from_iter(rusqlite_params.iter()), |row| {
+            Ok(Service {
+                id: row.get(0)?,
+                customer_id: row.get(1)?,
+                date: row.get(2)?,
+                notes: row.get(3)?,
+                currency_id: row.get(4)?,
+                exchange_rate: row.get(5)?,
+                total_amount: row.get(6)?,
+                base_amount: row.get(7)?,
+                paid_amount: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        }).map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row.map_err(|e| anyhow::anyhow!("{}", e))?);
+        }
+        Ok(result)
+    }).map_err(|e| format!("Failed to fetch services: {}", e))?;
+
+    let total_pages = (total as f64 / per_page as f64).ceil() as i64;
+    Ok(PaginatedResponse {
+        items: services,
+        total,
+        page,
+        per_page,
+        total_pages,
+    })
+}
+
+/// Get a single service by ID
+#[tauri::command]
+fn get_service(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Service, Vec<ServiceItem>), String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let service_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, created_at, updated_at FROM services WHERE id = ?";
+    let services = db
+        .query(service_sql, &[&id as &dyn rusqlite::ToSql], |row| {
+            Ok(Service {
+                id: row.get(0)?,
+                customer_id: row.get(1)?,
+                date: row.get(2)?,
+                notes: row.get(3)?,
+                currency_id: row.get(4)?,
+                exchange_rate: row.get(5)?,
+                total_amount: row.get(6)?,
+                base_amount: row.get(7)?,
+                paid_amount: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service: {}", e))?;
+
+    let service = services.first().ok_or("Service not found")?;
+
+    let items_sql = "SELECT id, service_id, name, price, quantity, total, created_at FROM service_items WHERE service_id = ?";
+    let items = db
+        .query(items_sql, &[&id as &dyn rusqlite::ToSql], |row| {
+            Ok(ServiceItem {
+                id: row.get(0)?,
+                service_id: row.get(1)?,
+                name: row.get(2)?,
+                price: row.get(3)?,
+                quantity: row.get(4)?,
+                total: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service items: {}", e))?;
+
+    Ok((service.clone(), items))
+}
+
+/// Update a service with items
+#[tauri::command]
+fn update_service(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    id: i64,
+    customer_id: i64,
+    date: String,
+    notes: Option<String>,
+    currency_id: Option<i64>,
+    exchange_rate: f64,
+    paid_amount: f64,
+    items: Vec<(String, f64, f64)>,
+) -> Result<Service, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let items_total: f64 = items.iter().map(|(_, price, qty)| price * qty).sum();
+    let total_amount = items_total;
+    let base_amount = total_amount * exchange_rate;
+
+    let notes_str: Option<&str> = notes.as_ref().map(|s| s.as_str());
+    let update_sql = "UPDATE services SET customer_id = ?, date = ?, notes = ?, currency_id = ?, exchange_rate = ?, total_amount = ?, base_amount = ?, paid_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    db.execute(update_sql, &[
+        &customer_id as &dyn rusqlite::ToSql,
+        &date as &dyn rusqlite::ToSql,
+        &notes_str as &dyn rusqlite::ToSql,
+        &currency_id as &dyn rusqlite::ToSql,
+        &exchange_rate as &dyn rusqlite::ToSql,
+        &total_amount as &dyn rusqlite::ToSql,
+        &base_amount as &dyn rusqlite::ToSql,
+        &paid_amount as &dyn rusqlite::ToSql,
+        &id as &dyn rusqlite::ToSql,
+    ])
+        .map_err(|e| format!("Failed to update service: {}", e))?;
+
+    let delete_items_sql = "DELETE FROM service_items WHERE service_id = ?";
+    db.execute(delete_items_sql, &[&id as &dyn rusqlite::ToSql])
+        .map_err(|e| format!("Failed to delete service items: {}", e))?;
+
+    for (name, price, quantity) in items {
+        let total = price * quantity;
+        let insert_item_sql = "INSERT INTO service_items (service_id, name, price, quantity, total) VALUES (?, ?, ?, ?, ?)";
+        db.execute(insert_item_sql, &[
+            &id as &dyn rusqlite::ToSql,
+            &name as &dyn rusqlite::ToSql,
+            &price as &dyn rusqlite::ToSql,
+            &quantity as &dyn rusqlite::ToSql,
+            &total as &dyn rusqlite::ToSql,
+        ])
+            .map_err(|e| format!("Failed to insert service item: {}", e))?;
+    }
+
+    let service_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, created_at, updated_at FROM services WHERE id = ?";
+    let services = db
+        .query(service_sql, &[&id as &dyn rusqlite::ToSql], |row| {
+            Ok(Service {
+                id: row.get(0)?,
+                customer_id: row.get(1)?,
+                date: row.get(2)?,
+                notes: row.get(3)?,
+                currency_id: row.get(4)?,
+                exchange_rate: row.get(5)?,
+                total_amount: row.get(6)?,
+                base_amount: row.get(7)?,
+                paid_amount: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service: {}", e))?;
+
+    if let Some(service) = services.first() {
+        Ok(service.clone())
+    } else {
+        Err("Failed to retrieve updated service".to_string())
+    }
+}
+
+/// Delete a service
+#[tauri::command]
+fn delete_service(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<String, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let delete_sql = "DELETE FROM services WHERE id = ?";
+    db.execute(delete_sql, &[&id as &dyn rusqlite::ToSql])
+        .map_err(|e| format!("Failed to delete service: {}", e))?;
+
+    Ok("Service deleted successfully".to_string())
+}
+
+/// Get service items for a service
+#[tauri::command]
+fn get_service_items(db_state: State<'_, Mutex<Option<Database>>>, service_id: i64) -> Result<Vec<ServiceItem>, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let sql = "SELECT id, service_id, name, price, quantity, total, created_at FROM service_items WHERE service_id = ? ORDER BY id";
+    let items = db
+        .query(sql, &[&service_id as &dyn rusqlite::ToSql], |row| {
+            Ok(ServiceItem {
+                id: row.get(0)?,
+                service_id: row.get(1)?,
+                name: row.get(2)?,
+                price: row.get(3)?,
+                quantity: row.get(4)?,
+                total: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service items: {}", e))?;
+
+    Ok(items)
+}
+
+/// Create a service item
+#[tauri::command]
+fn create_service_item(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    service_id: i64,
+    name: String,
+    price: f64,
+    quantity: f64,
+) -> Result<ServiceItem, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let total = price * quantity;
+    let insert_sql = "INSERT INTO service_items (service_id, name, price, quantity, total) VALUES (?, ?, ?, ?, ?)";
+    db.execute(insert_sql, &[
+        &service_id as &dyn rusqlite::ToSql,
+        &name as &dyn rusqlite::ToSql,
+        &price as &dyn rusqlite::ToSql,
+        &quantity as &dyn rusqlite::ToSql,
+        &total as &dyn rusqlite::ToSql,
+    ])
+        .map_err(|e| format!("Failed to insert service item: {}", e))?;
+
+    let id_sql = "SELECT id FROM service_items WHERE service_id = ? ORDER BY id DESC LIMIT 1";
+    let ids = db.query(id_sql, &[&service_id as &dyn rusqlite::ToSql], |row| Ok(row.get::<_, i64>(0)?))
+        .map_err(|e| format!("Failed to get service item id: {}", e))?;
+    let new_id = ids.first().ok_or("Failed to get created service item id")?;
+
+    let row_sql = "SELECT id, service_id, name, price, quantity, total, created_at FROM service_items WHERE id = ?";
+    let rows = db.query(row_sql, &[new_id as &dyn rusqlite::ToSql], |row| {
+        Ok(ServiceItem {
+            id: row.get(0)?,
+            service_id: row.get(1)?,
+            name: row.get(2)?,
+            price: row.get(3)?,
+            quantity: row.get(4)?,
+            total: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    }).map_err(|e| format!("Failed to fetch service item: {}", e))?;
+
+    if let Some(item) = rows.first() {
+        Ok(item.clone())
+    } else {
+        Err("Failed to retrieve created service item".to_string())
+    }
+}
+
+/// Update a service item
+#[tauri::command]
+fn update_service_item(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    id: i64,
+    name: String,
+    price: f64,
+    quantity: f64,
+) -> Result<ServiceItem, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let total = price * quantity;
+    let update_sql = "UPDATE service_items SET name = ?, price = ?, quantity = ?, total = ? WHERE id = ?";
+    db.execute(update_sql, &[
+        &name as &dyn rusqlite::ToSql,
+        &price as &dyn rusqlite::ToSql,
+        &quantity as &dyn rusqlite::ToSql,
+        &total as &dyn rusqlite::ToSql,
+        &id as &dyn rusqlite::ToSql,
+    ])
+        .map_err(|e| format!("Failed to update service item: {}", e))?;
+
+    let row_sql = "SELECT id, service_id, name, price, quantity, total, created_at FROM service_items WHERE id = ?";
+    let rows = db.query(row_sql, &[&id as &dyn rusqlite::ToSql], |row| {
+        Ok(ServiceItem {
+            id: row.get(0)?,
+            service_id: row.get(1)?,
+            name: row.get(2)?,
+            price: row.get(3)?,
+            quantity: row.get(4)?,
+            total: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    }).map_err(|e| format!("Failed to fetch service item: {}", e))?;
+
+    if let Some(item) = rows.first() {
+        Ok(item.clone())
+    } else {
+        Err("Failed to retrieve updated service item".to_string())
+    }
+}
+
+/// Delete a service item
+#[tauri::command]
+fn delete_service_item(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<String, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let delete_sql = "DELETE FROM service_items WHERE id = ?";
+    db.execute(delete_sql, &[&id as &dyn rusqlite::ToSql])
+        .map_err(|e| format!("Failed to delete service item: {}", e))?;
+
+    Ok("Service item deleted successfully".to_string())
+}
+
+/// Create a service payment (with optional account deposit)
+#[tauri::command]
+fn create_service_payment(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    service_id: i64,
+    account_id: Option<i64>,
+    currency_id: Option<i64>,
+    exchange_rate: f64,
+    amount: f64,
+    date: String,
+) -> Result<ServicePayment, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let base_amount = amount * exchange_rate;
+    let payment_currency_id = currency_id.unwrap_or_else(|| {
+        let service_currency_sql = "SELECT currency_id FROM services WHERE id = ?";
+        db.query(service_currency_sql, &[&service_id as &dyn rusqlite::ToSql], |row| Ok(row.get::<_, Option<i64>>(0)?))
+            .ok()
+            .and_then(|v| v.first().and_then(|c| *c))
+            .unwrap_or_else(|| {
+                db.query("SELECT id FROM currencies WHERE base = 1 LIMIT 1", &[], |row| Ok(row.get::<_, i64>(0)?))
+                    .ok()
+                    .and_then(|v| v.first().copied())
+                    .unwrap_or(1)
+            })
+    });
+
+    let insert_sql = "INSERT INTO service_payments (service_id, account_id, currency_id, exchange_rate, amount, base_amount, date) VALUES (?, ?, ?, ?, ?, ?, ?)";
+    db.execute(insert_sql, &[
+        &service_id as &dyn rusqlite::ToSql,
+        &account_id as &dyn rusqlite::ToSql,
+        &payment_currency_id as &dyn rusqlite::ToSql,
+        &exchange_rate as &dyn rusqlite::ToSql,
+        &amount as &dyn rusqlite::ToSql,
+        &base_amount as &dyn rusqlite::ToSql,
+        &date as &dyn rusqlite::ToSql,
+    ])
+        .map_err(|e| format!("Failed to insert service payment: {}", e))?;
+
+    if let Some(aid) = account_id {
+        let current_balance = get_account_balance_by_currency_internal(db, aid, payment_currency_id)
+            .unwrap_or(0.0);
+
+        let currency_name_sql = "SELECT name FROM currencies WHERE id = ? LIMIT 1";
+        let currency_names = db
+            .query(currency_name_sql, &[&payment_currency_id as &dyn rusqlite::ToSql], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })
+            .map_err(|e| format!("Failed to find currency name: {}", e))?;
+
+        if let Some(currency_name) = currency_names.first() {
+            let payment_notes = Some(format!("Payment for Service #{}", service_id));
+            let payment_notes_str: Option<&str> = payment_notes.as_ref().map(|s| s.as_str());
+            let is_full_int = 0i64;
+
+            let insert_transaction_sql = "INSERT INTO account_transactions (account_id, transaction_type, amount, currency, rate, total, transaction_date, is_full, notes) VALUES (?, 'deposit', ?, ?, ?, ?, ?, ?, ?)";
+            db.execute(insert_transaction_sql, &[
+                &aid as &dyn rusqlite::ToSql,
+                &amount as &dyn rusqlite::ToSql,
+                currency_name as &dyn rusqlite::ToSql,
+                &exchange_rate as &dyn rusqlite::ToSql,
+                &base_amount as &dyn rusqlite::ToSql,
+                &date as &dyn rusqlite::ToSql,
+                &is_full_int as &dyn rusqlite::ToSql,
+                &payment_notes_str as &dyn rusqlite::ToSql,
+            ])
+            .map_err(|e| format!("Failed to create account transaction: {}", e))?;
+
+            let new_balance = current_balance + amount;
+            update_account_currency_balance_internal(db, aid, payment_currency_id, new_balance)?;
+
+            let new_account_balance = calculate_account_balance_internal(db, aid)?;
+            let update_balance_sql = "UPDATE accounts SET current_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+            db.execute(update_balance_sql, &[
+                &new_account_balance as &dyn rusqlite::ToSql,
+                &aid as &dyn rusqlite::ToSql,
+            ])
+            .map_err(|e| format!("Failed to update account balance: {}", e))?;
+        }
+    }
+
+    let update_service_sql = "UPDATE services SET paid_amount = (SELECT COALESCE(SUM(base_amount), 0) FROM service_payments WHERE service_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    db.execute(update_service_sql, &[&service_id as &dyn rusqlite::ToSql, &service_id as &dyn rusqlite::ToSql])
+        .map_err(|e| format!("Failed to update service paid amount: {}", e))?;
+
+    let payment_sql = "SELECT id, service_id, account_id, currency_id, exchange_rate, amount, base_amount, date, created_at FROM service_payments WHERE service_id = ? ORDER BY id DESC LIMIT 1";
+    let payments = db
+        .query(payment_sql, &[&service_id as &dyn rusqlite::ToSql], |row| {
+            Ok(ServicePayment {
+                id: row.get(0)?,
+                service_id: row.get(1)?,
+                account_id: row.get(2)?,
+                currency_id: row.get(3)?,
+                exchange_rate: row.get(4)?,
+                amount: row.get(5)?,
+                base_amount: row.get(6)?,
+                date: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service payment: {}", e))?;
+
+    if let Some(payment) = payments.first() {
+        Ok(payment.clone())
+    } else {
+        Err("Failed to retrieve created service payment".to_string())
+    }
+}
+
+/// Get payments for a service
+#[tauri::command]
+fn get_service_payments(db_state: State<'_, Mutex<Option<Database>>>, service_id: i64) -> Result<Vec<ServicePayment>, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let sql = "SELECT id, service_id, account_id, currency_id, exchange_rate, amount, base_amount, date, created_at FROM service_payments WHERE service_id = ? ORDER BY date DESC, created_at DESC";
+    let payments = db
+        .query(sql, &[&service_id as &dyn rusqlite::ToSql], |row| {
+            Ok(ServicePayment {
+                id: row.get(0)?,
+                service_id: row.get(1)?,
+                account_id: row.get(2)?,
+                currency_id: row.get(3)?,
+                exchange_rate: row.get(4)?,
+                amount: row.get(5)?,
+                base_amount: row.get(6)?,
+                date: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch service payments: {}", e))?;
+
+    Ok(payments)
+}
+
+/// Delete a service payment
+#[tauri::command]
+fn delete_service_payment(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    id: i64,
+) -> Result<String, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let service_id_sql = "SELECT service_id FROM service_payments WHERE id = ?";
+    let service_ids = db
+        .query(service_id_sql, &[&id as &dyn rusqlite::ToSql], |row| {
+            Ok(row.get::<_, i64>(0)?)
+        })
+        .map_err(|e| format!("Failed to fetch service_id: {}", e))?;
+
+    let service_id = service_ids.first().ok_or("Service payment not found")?;
+
+    let delete_sql = "DELETE FROM service_payments WHERE id = ?";
+    db.execute(delete_sql, &[&id as &dyn rusqlite::ToSql])
+        .map_err(|e| format!("Failed to delete service payment: {}", e))?;
+
+    let update_service_sql = "UPDATE services SET paid_amount = (SELECT COALESCE(SUM(amount), 0) FROM service_payments WHERE service_id = ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    db.execute(update_service_sql, &[service_id as &dyn rusqlite::ToSql, service_id as &dyn rusqlite::ToSql])
+        .map_err(|e| format!("Failed to update service paid amount: {}", e))?;
+
+    Ok("Service payment deleted successfully".to_string())
+}
+
 // ExpenseType Model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpenseType {
@@ -7870,6 +8591,19 @@ pub fn run() {
             get_sale_payments,
             delete_sale_payment,
             get_sale_additional_costs,
+            init_services_table,
+            create_service,
+            get_services,
+            get_service,
+            update_service,
+            delete_service,
+            get_service_items,
+            create_service_item,
+            update_service_item,
+            delete_service_item,
+            create_service_payment,
+            get_service_payments,
+            delete_service_payment,
             init_expense_types_table,
             create_expense_type,
             get_expense_types,

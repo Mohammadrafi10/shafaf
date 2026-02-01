@@ -85,9 +85,10 @@ const translations = {
 interface CustomerManagementProps {
   onBack?: () => void;
   onNavigateToBalancePage?: () => void;
+  onNavigateToServicePaymentPage?: () => void;
 }
 
-export default function CustomerManagement({ onBack, onNavigateToBalancePage }: CustomerManagementProps) {
+export default function CustomerManagement({ onBack, onNavigateToBalancePage, onNavigateToServicePaymentPage }: CustomerManagementProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerBalances, setCustomerBalances] = useState<Record<number, { totalSales: number; totalPaid: number; totalRemaining: number }>>({});
   const [loading, setLoading] = useState(false);
@@ -480,6 +481,15 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage }: 
           onBack={onBack}
           backLabel={translations.backToDashboard}
           actions={[
+            ...(onNavigateToServicePaymentPage
+              ? [
+                  {
+                    label: "پرداخت خدمات",
+                    onClick: onNavigateToServicePaymentPage,
+                    variant: "secondary" as const,
+                  },
+                ]
+              : []),
             ...(onNavigateToBalancePage
               ? [
                   {
