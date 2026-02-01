@@ -87,7 +87,16 @@ const translations = {
         date: "تاریخ",
         history: "تاریخچه پرداخت‌ها",
         noPayments: "هیچ پرداختی ثبت نشده است",
-    }
+    },
+    initialPayment: "پرداخت اولیه",
+    initialPaymentOptional: "پرداخت اولیه (اختیاری)",
+    optional: "اختیاری",
+    paymentAmount: "مبلغ پرداخت",
+    paymentCurrency: "ارز",
+    paymentRate: "نرخ",
+    paymentDate: "تاریخ پرداخت",
+    paymentNotes: "یادداشت",
+    paymentTotal: "مجموع",
 };
 
 interface SalesManagementProps {
@@ -133,6 +142,15 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         amount: '',
         date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
     });
+    const [initialPaymentFormData, setInitialPaymentFormData] = useState({
+        amount: "",
+        currency_id: "",
+        exchange_rate: 1,
+        account_id: "",
+        date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
+        notes: "",
+        total: "",
+    });
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
     const [productBatches, setProductBatches] = useState<Record<number, ProductBatch[]>>({});
 
@@ -160,6 +178,19 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         return accounts.filter(account => account.currency_id === selectedCurrency.id && account.is_active);
     };
 
+    const getFilteredAccountsForInitialPayment = () => {
+        if (!initialPaymentFormData.currency_id || !accounts || !Array.isArray(accounts)) return [];
+        const selectedCurrency = currencies.find(c => c.id.toString() === initialPaymentFormData.currency_id);
+        if (!selectedCurrency) return [];
+        return accounts.filter(account => account.currency_id === selectedCurrency.id && account.is_active);
+    };
+
+    const calculateInitialPaymentTotal = () => {
+        const amount = parseFloat(initialPaymentFormData.amount) || 0;
+        const rate = parseFloat(String(initialPaymentFormData.exchange_rate)) || 1;
+        return amount * rate;
+    };
+
     // Load account balance when account and currency are selected
     useEffect(() => {
         const loadAccountBalance = async () => {
@@ -184,6 +215,11 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
 
         loadAccountBalance();
     }, [newPayment.account_id, newPayment.currency_id, currencies]);
+
+    useEffect(() => {
+        const total = calculateInitialPaymentTotal();
+        setInitialPaymentFormData(prev => ({ ...prev, total: total.toFixed(2) }));
+    }, [initialPaymentFormData.amount, initialPaymentFormData.exchange_rate]);
 
     const loadData = async () => {
         try {
@@ -375,6 +411,15 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                 additional_costs: [],
                 items: [],
             });
+            setInitialPaymentFormData({
+                amount: "",
+                currency_id: baseCurrency?.id.toString() || "",
+                exchange_rate: baseCurrency ? (baseCurrency.rate ?? 1) : 1,
+                account_id: "",
+                date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
+                notes: "",
+                total: "",
+            });
             setProductBatches({});
         }
         setIsModalOpen(true);
@@ -392,6 +437,15 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             paid_amount: 0,
             additional_costs: [],
             items: [],
+        });
+        setInitialPaymentFormData({
+            amount: "",
+            currency_id: "",
+            exchange_rate: 1,
+            account_id: "",
+            date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
+            notes: "",
+            total: "",
         });
         setProductBatches({});
     };
@@ -558,17 +612,47 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                 );
                 toast.success(translations.success.updated);
             } else {
-                await createSale(
+                const initialAmount = parseFloat(initialPaymentFormData.amount) || 0;
+                const useInitialPaymentForm = initialAmount > 0 && initialPaymentFormData.currency_id;
+                // Pass paid_amount 0 when using initial payment section so backend doesn't insert a payment (we add it via createSalePayment to avoid double)
+                const paidAmountForCreate = useInitialPaymentForm ? 0 : formData.paid_amount;
+                const newSale = await createSale(
                     formData.customer_id,
                     formData.date,
                     formData.notes || null,
                     formData.currency_id ? parseInt(formData.currency_id) : null,
                     formData.exchange_rate ? parseFloat(formData.exchange_rate.toString()) : 1,
-                    formData.paid_amount,
+                    paidAmountForCreate,
                     formData.additional_costs,
                     formData.items
                 );
                 toast.success(translations.success.created);
+                if (useInitialPaymentForm) {
+                    try {
+                        const paymentDate = initialPaymentFormData.date?.trim() || persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split("T")[0];
+                        const accountId = initialPaymentFormData.account_id?.trim()
+                            ? parseInt(initialPaymentFormData.account_id, 10)
+                            : null;
+                        const currencyId = parseInt(initialPaymentFormData.currency_id, 10);
+                        if (Number.isNaN(accountId) && initialPaymentFormData.account_id?.trim()) {
+                            toast.error("فروش ایجاد شد؛ حساب انتخاب شده نامعتبر است");
+                        } else {
+                            await createSalePayment(
+                                newSale.id,
+                                accountId ?? null,
+                                Number.isNaN(currencyId) ? null : currencyId,
+                                parseFloat(String(initialPaymentFormData.exchange_rate)) || 1,
+                                initialAmount,
+                                paymentDate
+                            );
+                            toast.success("پرداخت اولیه با موفقیت ثبت شد");
+                        }
+                    } catch (paymentError: unknown) {
+                        const msg = typeof paymentError === "string" ? paymentError : (paymentError as Error)?.message || String(paymentError);
+                        toast.error(`فروش ایجاد شد؛ ${msg}`, { duration: 5000 });
+                        console.error("Error creating initial payment:", paymentError);
+                    }
+                }
             }
             handleCloseModal();
             await loadData();
@@ -1199,7 +1283,109 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                         </div>
                                     </div>
 
-                                    <div className="flex gap-3 pt-4">
+                                    {/* Initial payment section - only when creating new sale */}
+                                    {!editingSale && (
+                                        <div className="p-5 rounded-2xl bg-emerald-50/80 dark:bg-emerald-900/20 border border-emerald-200/60 dark:border-emerald-700/40">
+                                            <div className="flex items-center gap-2 mb-4">
+                                                <svg className="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                                <span className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">{translations.initialPaymentOptional}</span>
+                                            </div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentAmount}</label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={initialPaymentFormData.amount}
+                                                        onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, amount: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                                                        placeholder="0"
+                                                        dir="ltr"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentCurrency}</label>
+                                                    <select
+                                                        value={initialPaymentFormData.currency_id}
+                                                        onChange={(e) => {
+                                                            const id = e.target.value;
+                                                            const cur = currencies.find(c => c.id.toString() === id);
+                                                            setInitialPaymentFormData({
+                                                                ...initialPaymentFormData,
+                                                                currency_id: id,
+                                                                exchange_rate: cur?.rate ?? 1,
+                                                                account_id: "",
+                                                            });
+                                                        }}
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                                                        dir="rtl"
+                                                    >
+                                                        <option value="">انتخاب ارز</option>
+                                                        {currencies.map((c) => (
+                                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">حساب {translations.optional}</label>
+                                                    <select
+                                                        value={initialPaymentFormData.account_id}
+                                                        onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, account_id: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all disabled:opacity-50"
+                                                        dir="rtl"
+                                                        disabled={!initialPaymentFormData.currency_id}
+                                                    >
+                                                        <option value="">انتخاب حساب</option>
+                                                        {getFilteredAccountsForInitialPayment().map((acc) => (
+                                                            <option key={acc.id} value={acc.id}>{acc.name} {acc.account_code ? `(${acc.account_code})` : ""}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentRate}</label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={initialPaymentFormData.exchange_rate}
+                                                        onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, exchange_rate: parseFloat(e.target.value) || 1 })}
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                                                        dir="ltr"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="mt-4 flex items-center gap-4 flex-wrap">
+                                                <div className="flex-1 min-w-[140px]">
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentDate}</label>
+                                                    <PersianDatePicker
+                                                        value={initialPaymentFormData.date}
+                                                        onChange={(date) => setInitialPaymentFormData({ ...initialPaymentFormData, date })}
+                                                        placeholder={translations.placeholders.date}
+                                                    />
+                                                </div>
+                                                <div className="flex-1 min-w-[140px]">
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{translations.paymentNotes}</label>
+                                                    <input
+                                                        type="text"
+                                                        value={initialPaymentFormData.notes}
+                                                        onChange={(e) => setInitialPaymentFormData({ ...initialPaymentFormData, notes: e.target.value })}
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-emerald-500 transition-all"
+                                                        placeholder={translations.placeholders.notes}
+                                                        dir="rtl"
+                                                    />
+                                                </div>
+                                                {parseFloat(initialPaymentFormData.amount) > 0 && (
+                                                    <div className="px-4 py-3 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 border border-emerald-300/50 dark:border-emerald-700/50">
+                                                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{translations.paymentTotal}: </span>
+                                                        <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{parseFloat(initialPaymentFormData.total || "0").toLocaleString("en-US")} افغانی</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                                         <motion.button
                                             type="button"
                                             whileHover={{ scale: 1.05 }}
