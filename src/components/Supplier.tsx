@@ -90,9 +90,10 @@ const translations = {
 
 interface SupplierManagementProps {
   onBack?: () => void;
+  onNavigateToBalancePage?: () => void;
 }
 
-export default function SupplierManagement({ onBack }: SupplierManagementProps) {
+export default function SupplierManagement({ onBack, onNavigateToBalancePage }: SupplierManagementProps) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierBalances, setSupplierBalances] = useState<Record<number, { totalPurchases: number; totalPaid: number; totalRemaining: number }>>({});
   const [loading, setLoading] = useState(false);
@@ -532,6 +533,15 @@ export default function SupplierManagement({ onBack }: SupplierManagementProps) 
           onBack={onBack}
           backLabel={translations.backToDashboard}
           actions={[
+            ...(onNavigateToBalancePage
+              ? [
+                  {
+                    label: "بیلانس تمویل کننده ها",
+                    onClick: onNavigateToBalancePage,
+                    variant: "secondary" as const,
+                  },
+                ]
+              : []),
             {
               label: translations.addNew,
               onClick: () => handleOpenModal(),

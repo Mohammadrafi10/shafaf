@@ -17,6 +17,10 @@ const translations = {
     address: "آدرس",
     font: "فونت",
     companyInfo: "اطلاعات شرکت",
+    quickLinks: "دسترسی سریع",
+    manageCurrencies: "مدیریت ارزها",
+    manageUnits: "مدیریت واحدها",
+    manageAccounts: "مدیریت حساب‌ها",
     success: {
         updated: "تنظیمات شرکت با موفقیت بروزرسانی شد",
     },
@@ -32,11 +36,14 @@ const translations = {
     },
 };
 
+export type CompanySettingsNavigatePage = "currency" | "unit" | "account";
+
 interface CompanySettingsProps {
     onBack: () => void;
+    onNavigate?: (page: CompanySettingsNavigatePage) => void;
 }
 
-export default function CompanySettings({ onBack }: CompanySettingsProps) {
+export default function CompanySettings({ onBack, onNavigate }: CompanySettingsProps) {
     const [loading, setLoading] = useState(false);
     const [fetchLoading, setFetchLoading] = useState(true);
     const [formData, setFormData] = useState({
@@ -231,6 +238,47 @@ export default function CompanySettings({ onBack }: CompanySettingsProps) {
                         </div>
                     </div>
                 </motion.div>
+
+                {/* Quick Links: Currency, Unit, Account */}
+                {onNavigate && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.15 }}
+                        className="mb-6"
+                    >
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                            <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                            {translations.quickLinks}
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {[
+                                { title: translations.manageCurrencies, page: "currency" as const, icon: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z", color: "from-amber-500 to-orange-500" },
+                                { title: translations.manageUnits, page: "unit" as const, icon: "M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z", color: "from-pink-500 to-rose-500" },
+                                { title: translations.manageAccounts, page: "account" as const, icon: "M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z", color: "from-yellow-500 to-amber-500" },
+                            ].map((item) => (
+                                <motion.button
+                                    key={item.page}
+                                    type="button"
+                                    onClick={() => onNavigate(item.page)}
+                                    whileHover={{ scale: 1.02, y: -4 }}
+                                    whileTap={{ scale: 0.98 }}
+                                    className={`group relative bg-gradient-to-br ${item.color} rounded-2xl shadow-lg hover:shadow-xl p-5 border border-white/20 text-white text-right transition-all duration-300 overflow-hidden`}
+                                >
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="font-bold text-base">{item.title}</span>
+                                        <svg className="w-6 h-6 opacity-80 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </div>
+                                    <div className="absolute inset-0 bg-white/0 group-hover:bg-white/10 transition-colors" />
+                                </motion.button>
+                            ))}
+                        </div>
+                    </motion.div>
+                )}
 
                 <form onSubmit={handleSubmit}>
                     {/* Company Information Section */}
