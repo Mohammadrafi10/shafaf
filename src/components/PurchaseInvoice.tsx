@@ -4,10 +4,7 @@ import { Supplier } from "../utils/supplier";
 import { Product } from "../utils/product";
 import { Unit } from "../utils/unit";
 import { CompanySettings } from "../utils/company";
-import { formatPersianDateLong } from "../utils/date";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-import toast from "react-hot-toast";
+import { georgianToPersian } from "../utils/date";
 import * as QRCode from "qrcode";
 
 interface PurchaseInvoiceProps {
@@ -29,7 +26,6 @@ export default function PurchaseInvoice({
 }: PurchaseInvoiceProps) {
     const printRef = useRef<HTMLDivElement>(null);
     const qrCodeCanvasRef = useRef<HTMLCanvasElement>(null);
-    const [isExporting, setIsExporting] = useState(false);
     const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
 
     // Generate QR code on mount
@@ -62,21 +58,14 @@ export default function PurchaseInvoice({
         }
     }, [purchaseData, supplier]);
 
-    // Auto-download PDF when component mounts
-    useEffect(() => {
-        // Small delay to ensure QR code and content are rendered
-        const timer = setTimeout(() => {
-            if (printRef.current && !isExporting) {
-                handleExportPDF(true); // Pass true to auto-close after download
-            }
-        }, 1500); // Wait for QR code to be generated
-
-        return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [qrCodeDataUrl]); // Trigger when QR code is ready
+    const handlePrint = () => {
+        window.print();
+    };
 
     const formatDate = (dateString: string) => {
-        return formatPersianDateLong(dateString);
+        if (!dateString) return "";
+        const normalized = dateString.includes("T") ? dateString.slice(0, 10) : dateString.trim();
+        return georgianToPersian(normalized);
     };
 
     const formatNumber = (num: number) => {
@@ -93,212 +82,12 @@ export default function PurchaseInvoice({
         return unit?.name || "نامشخص";
     };
 
-    const handleExportPDF = async (autoClose = false) => {
-        if (!printRef.current) {
-            toast.error("خطا در تولید PDF");
-            return;
-        }
-
-        try {
-            setIsExporting(true);
-
-            const actionButtons = document.querySelector('.no-print');
-            if (actionButtons) (actionButtons as HTMLElement).style.display = 'none';
-
-            // Inject CSS override to prevent oklch parsing errors
-            const styleId = 'pdf-export-oklch-fix';
-            let styleElement = document.getElementById(styleId) as HTMLStyleElement;
-            if (!styleElement) {
-                styleElement = document.createElement('style');
-                styleElement.id = styleId;
-                styleElement.textContent = `
-                    * {
-                        background-image: none !important;
-                    }
-                    [class*="gradient"],
-                    [class*="from-"],
-                    [class*="to-"] {
-                        background: #10b981 !important;
-                        background-color: #10b981 !important;
-                        background-image: none !important;
-                    }
-                `;
-                document.head.appendChild(styleElement);
-            }
-
-            // Temporarily replace gradient classes with solid colors
-            const elementsToFix: Array<{ element: HTMLElement; originalClasses: string; originalStyle: string }> = [];
-            if (printRef.current) {
-                const allElements = printRef.current.querySelectorAll('*');
-                allElements.forEach((el) => {
-                    const htmlEl = el as HTMLElement;
-                    const computedStyle = window.getComputedStyle(htmlEl);
-                    const bg = computedStyle.background || computedStyle.backgroundColor || '';
-
-                    // Check if element has oklch in computed styles
-                    if (bg.includes('oklch') || htmlEl.className.includes('gradient') || htmlEl.className.includes('from-') || htmlEl.className.includes('to-')) {
-                        const originalClasses = htmlEl.className;
-                        const originalStyle = htmlEl.style.cssText;
-
-                        // Force solid color
-                        htmlEl.style.background = '#10b981';
-                        htmlEl.style.backgroundColor = '#10b981';
-                        htmlEl.style.backgroundImage = 'none';
-
-                        // Remove gradient classes
-                        htmlEl.className = originalClasses
-                            .split(' ')
-                            .filter(cls => !cls.includes('gradient') && !cls.includes('from-') && !cls.includes('to-') && !cls.includes('hover:from-') && !cls.includes('hover:to-'))
-                            .join(' ');
-
-                        elementsToFix.push({ element: htmlEl, originalClasses, originalStyle });
-                    }
-                });
-            }
-
-            // Wait for styles to apply
-            await new Promise(resolve => setTimeout(resolve, 200));
-
-            let canvas;
-            try {
-                canvas = await html2canvas(printRef.current, {
-                    scale: 3,
-                    useCORS: true,
-                    logging: false,
-                    backgroundColor: '#ffffff',
-                    onclone: (clonedDoc) => {
-                        // Remove all stylesheets that might contain oklch
-                        const styleSheets = clonedDoc.querySelectorAll('style, link[rel="stylesheet"]');
-                        styleSheets.forEach((style) => {
-                            if (style.textContent?.includes('oklch') || (style as HTMLLinkElement).href?.includes('tailwind')) {
-                                style.remove();
-                            }
-                        });
-
-                        // Traverse all elements and fix computed styles
-                        const allElements = clonedDoc.querySelectorAll('*');
-                        allElements.forEach((el) => {
-                            const htmlEl = el as HTMLElement;
-
-                            // Get computed styles and replace oklch
-                            try {
-                                const computedStyle = window.getComputedStyle(htmlEl);
-
-                                // Check and fix background
-                                const bg = computedStyle.background || computedStyle.backgroundColor || '';
-                                if (bg.includes('oklch')) {
-                                    htmlEl.style.background = '#10b981';
-                                    htmlEl.style.backgroundColor = '#10b981';
-                                    htmlEl.style.backgroundImage = 'none';
-                                }
-
-                                // Check and fix color
-                                const color = computedStyle.color || '';
-                                if (color.includes('oklch')) {
-                                    htmlEl.style.color = '#1e293b';
-                                }
-
-                                // Check and fix border
-                                const border = computedStyle.borderColor || computedStyle.borderTopColor || '';
-                                if (border.includes('oklch')) {
-                                    htmlEl.style.borderColor = '#e2e8f0';
-                                }
-
-                                // Remove gradient classes
-                                if (htmlEl.className) {
-                                    htmlEl.className = htmlEl.className
-                                        .split(' ')
-                                        .filter(cls => !cls.includes('gradient') && !cls.includes('from-') && !cls.includes('to-'))
-                                        .join(' ');
-                                }
-                            } catch (e) {
-                                // Ignore errors for individual elements
-                            }
-                        });
-                    },
-                });
-            } catch (error) {
-                // If still fails, try with even simpler approach - clone and simplify
-                console.warn('First attempt failed, trying simpler rendering...', error);
-
-                // Create a simplified clone
-                const clone = printRef.current.cloneNode(true) as HTMLElement;
-                clone.style.position = 'absolute';
-                clone.style.left = '-9999px';
-                clone.style.top = '0';
-                document.body.appendChild(clone);
-
-                // Remove all problematic classes and styles
-                const allElements = clone.querySelectorAll('*');
-                allElements.forEach((el) => {
-                    const htmlEl = el as HTMLElement;
-                    htmlEl.className = htmlEl.className
-                        .split(' ')
-                        .filter(cls => !cls.includes('gradient') && !cls.includes('from-') && !cls.includes('to-') && !cls.includes('hover'))
-                        .join(' ');
-                    htmlEl.style.background = htmlEl.style.background?.replace(/oklch\([^)]+\)/g, '#10b981') || '';
-                    htmlEl.style.backgroundColor = htmlEl.style.backgroundColor?.replace(/oklch\([^)]+\)/g, '#10b981') || '';
-                    htmlEl.style.color = htmlEl.style.color?.replace(/oklch\([^)]+\)/g, '#1e293b') || '';
-                });
-
-                try {
-                    canvas = await html2canvas(clone, {
-                        scale: 2,
-                        useCORS: true,
-                        logging: false,
-                        backgroundColor: '#ffffff',
-                    });
-                } finally {
-                    document.body.removeChild(clone);
-                }
-            }
-
-            // Restore original classes and styles
-            elementsToFix.forEach(({ element, originalClasses, originalStyle }) => {
-                element.className = originalClasses;
-                element.style.cssText = originalStyle;
-            });
-
-            // Remove injected style
-            if (styleElement && styleElement.parentNode) {
-                styleElement.parentNode.removeChild(styleElement);
-            }
-
-            if (actionButtons) (actionButtons as HTMLElement).style.display = '';
-
-            const imgWidth = 210;
-            const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-            const pdf = new jsPDF('p', 'mm', 'a4');
-            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, imgWidth, imgHeight);
-
-            const fileName = `فاکتور-خرید-${purchaseData.purchase.id}.pdf`;
-            pdf.save(fileName);
-
-            toast.success("PDF با موفقیت دانلود شد");
-
-            // Auto-close modal after download if requested
-            if (autoClose && onClose) {
-                setTimeout(() => {
-                    onClose();
-                }, 500);
-            }
-        } catch (error) {
-            console.error("Error exporting PDF:", error);
-            toast.error("خطا در تولید PDF");
-        } finally {
-            setIsExporting(false);
-        }
-    };
-
     return (
         <>
             <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-                @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap');
-                
+                @import url('/fonts/400.css');
                 .invoice-root {
-                    font-family: 'Vazirmatn', 'Inter', system-ui, -apple-system, sans-serif;
+                    font-family: 'IRANSans', Tahoma, 'Segoe UI', 'Arabic UI Display', Arial, sans-serif;
                     background-color: #f1f5f9;
                 }
 
@@ -311,6 +100,7 @@ export default function PurchaseInvoice({
                     box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.15);
                     position: relative;
                     direction: rtl;
+                    unicode-bidi: embed;
                     border-radius: 4px;
                     overflow: hidden;
                     display: flex;
@@ -328,6 +118,9 @@ export default function PurchaseInvoice({
                     flex: 1;
                     display: flex;
                     flex-direction: column;
+                    direction: rtl;
+                    unicode-bidi: embed;
+                    text-align: right;
                 }
 
                 .invoice-title-badge {
@@ -450,6 +243,7 @@ export default function PurchaseInvoice({
                     font-weight: 700;
                     font-size: 16px;
                     direction: ltr;
+                    unicode-bidi: embed;
                 }
 
                 .table-container {
@@ -473,6 +267,8 @@ export default function PurchaseInvoice({
                     color: #475569;
                     border-bottom: 1px solid #e2e8f0;
                     white-space: nowrap;
+                    direction: rtl;
+                    unicode-bidi: embed;
                 }
 
                 .modern-table td {
@@ -496,10 +292,134 @@ export default function PurchaseInvoice({
                     color: #0f172a;
                     font-size: 15px;
                 }
+
+                .modern-table td.row-total {
+                    direction: ltr;
+                    text-align: left;
+                }
                 
                 .row-total {
                     font-weight: 700;
                     color: #059669;
+                    direction: ltr;
+                    unicode-bidi: embed;
+                }
+
+                .additional-costs-section {
+                    margin-bottom: 32px;
+                }
+
+                .additional-costs-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-bottom: 14px;
+                }
+
+                .additional-costs-icon {
+                    width: 28px;
+                    height: 28px;
+                    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                    color: white;
+                    border-radius: 10px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 16px;
+                    font-weight: 800;
+                    line-height: 1;
+                }
+
+                .additional-costs-title {
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #64748b;
+                    text-transform: uppercase;
+                    letter-spacing: 0.06em;
+                    margin: 0;
+                }
+
+                .additional-costs-card {
+                    background: #fffbeb;
+                    border: 1px solid #fde68a;
+                    border-radius: 16px;
+                    overflow: hidden;
+                    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.08);
+                }
+
+                .additional-costs-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 14px;
+                }
+
+                .additional-costs-table thead tr {
+                    background: #fef3c7;
+                    border-bottom: 1px solid #fde68a;
+                }
+
+                .additional-costs-table th {
+                    padding: 14px 20px;
+                    text-align: right;
+                    font-weight: 700;
+                    color: #92400e;
+                    font-size: 12px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.04em;
+                }
+
+                .ac-col-num { width: 56px; text-align: center; }
+                .ac-col-desc { min-width: 0; }
+                .ac-col-amount { width: 140px; text-align: left; }
+
+                .additional-costs-table .ac-row td {
+                    padding: 14px 20px;
+                    border-bottom: 1px solid #fef3c7;
+                    color: #334155;
+                    vertical-align: middle;
+                    direction: rtl;
+                    unicode-bidi: embed;
+                    text-align: right;
+                }
+
+                .additional-costs-table .ac-row:last-child td {
+                    border-bottom: none;
+                }
+
+                .additional-costs-table .ac-desc {
+                    font-weight: 600;
+                    color: #1e293b;
+                }
+
+                .additional-costs-table .ac-amount {
+                    font-weight: 700;
+                    color: #059669;
+                    direction: ltr;
+                    unicode-bidi: embed;
+                    text-align: left;
+                }
+
+                .additional-costs-table tfoot .ac-total-row {
+                    background: #fef3c7;
+                    border-top: 2px solid #f59e0b;
+                }
+
+                .additional-costs-table tfoot .ac-total-row td {
+                    padding: 16px 20px;
+                    font-weight: 800;
+                    font-size: 15px;
+                    color: #0f172a;
+                }
+
+                .ac-total-label {
+                    text-align: right;
+                }
+
+                .ac-total-value {
+                    text-align: left;
+                    color: #047857;
+                    direction: ltr;
+                    unicode-bidi: embed;
                 }
 
                 .summary-section {
@@ -649,12 +569,25 @@ export default function PurchaseInvoice({
                 }
 
                 @media print {
-                    .invoice-root { background: white; padding: 0; }
+                    body * { visibility: hidden; }
+                    .invoice-print-area,
+                    .invoice-print-area * { visibility: visible; }
+                    .invoice-print-area {
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
+                        min-height: 100vh !important;
+                        background: white !important;
+                        box-shadow: none !important;
+                        margin: 0 !important;
+                        border-radius: 0 !important;
+                    }
                     .invoice-card { 
                         box-shadow: none; 
-                        margin: 0; 
-                        width: 100%; 
-                        min-height: 100vh;
+                        margin: 0 auto; 
+                        width: 210mm;
+                        min-height: auto;
                         border-radius: 0;
                         border: none;
                     }
@@ -663,9 +596,9 @@ export default function PurchaseInvoice({
                 }
             `}</style>
 
-            <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/80 backdrop-blur-md p-8 overflow-y-auto invoice-root">
+            <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/80 backdrop-blur-md p-8 overflow-y-auto invoice-root" dir="rtl">
                 <div className="max-w-[230mm] w-full mx-auto">
-                    <div className="no-print flex flex-col md:flex-row justify-between items-center mb-8 gap-4 px-2">
+                    <div className="no-print flex flex-col md:flex-row justify-between items-center mb-6 gap-4 px-2">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -674,35 +607,25 @@ export default function PurchaseInvoice({
                             </div>
                             <div>
                                 <h2 className="text-white text-xl font-bold">پیش‌نمایش فاکتور</h2>
-                                <p className="text-slate-400 text-sm">نسخه نهایی جهت چاپ یا ذخیره</p>
+                                <p className="text-slate-400 text-sm">چاپ یا ذخیره به PDF از طریق دکمهٔ چاپ</p>
                             </div>
                         </div>
-
                         <div className="flex flex-wrap gap-3">
                             <button
-                                onClick={() => handleExportPDF(false)}
-                                disabled={isExporting}
-                                className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl shadow-lg shadow-emerald-500/20 transition-all font-bold flex items-center gap-2 disabled:opacity-50 transform hover:-translate-y-0.5"
+                                type="button"
+                                onClick={handlePrint}
+                                className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl shadow-lg font-bold flex items-center gap-2"
                             >
-                                {isExporting ? (
-                                    <span className="flex items-center gap-2">
-                                        <svg className="animate-spin h-5 w-5 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                                        در حال پردازش...
-                                    </span>
-                                ) : (
-                                    <>
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                        </svg>
-                                        دانلود PDF
-                                    </>
-                                )}
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2h-2a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                چاپ فاکتور
                             </button>
-
                             {onClose && (
                                 <button
+                                    type="button"
                                     onClick={onClose}
-                                    className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all font-bold backdrop-blur-sm"
+                                    className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all font-bold"
                                 >
                                     بستن
                                 </button>
@@ -710,7 +633,8 @@ export default function PurchaseInvoice({
                         </div>
                     </div>
 
-                    <div ref={printRef} className="invoice-card">
+                    <div className="invoice-print-area">
+                    <div ref={printRef} className="invoice-card" dir="rtl">
                         <div className="invoice-header-bg"></div>
 
                         <div className="invoice-content">
@@ -798,32 +722,39 @@ export default function PurchaseInvoice({
                             </div>
 
                             {purchaseData.additional_costs && purchaseData.additional_costs.length > 0 && (
-                                <div className="table-container" style={{ marginBottom: 24 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>هزینه‌های اضافی</div>
-                                    <table className="modern-table">
-                                        <thead>
-                                            <tr>
-                                                <th style={{ width: '60px' }} className="text-center">#</th>
-                                                <th>شرح</th>
-                                                <th style={{ width: '160px' }} className="text-left">مبلغ</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {purchaseData.additional_costs.map((cost, idx) => (
-                                                <tr key={cost.id ?? idx}>
-                                                    <td className="text-center text-slate-400 font-bold text-sm">{idx + 1}</td>
-                                                    <td className="product-name">{cost.name}</td>
-                                                    <td className="text-left row-total">{formatNumber(cost.amount)}</td>
+                                <div className="additional-costs-section">
+                                    <div className="additional-costs-header">
+                                        <span className="additional-costs-icon">+</span>
+                                        <h3 className="additional-costs-title">هزینه‌های اضافی</h3>
+                                    </div>
+                                    <div className="additional-costs-card">
+                                        <table className="additional-costs-table">
+                                            <thead>
+                                                <tr>
+                                                    <th className="ac-col-num">#</th>
+                                                    <th className="ac-col-desc">شرح</th>
+                                                    <th className="ac-col-amount">مبلغ</th>
                                                 </tr>
-                                            ))}
-                                            <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
-                                                <td colSpan={2} className="text-left" style={{ padding: '16px 24px' }}>جمع هزینه‌های اضافی</td>
-                                                <td className="text-left row-total" style={{ padding: '16px 24px' }}>
-                                                    {formatNumber(purchaseData.additional_costs.reduce((s, c) => s + c.amount, 0))}
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                {purchaseData.additional_costs.map((cost, idx) => (
+                                                    <tr key={cost.id ?? idx} className="ac-row">
+                                                        <td className="ac-col-num">{idx + 1}</td>
+                                                        <td className="ac-col-desc ac-desc">{cost.name}</td>
+                                                        <td className="ac-col-amount ac-amount">{formatNumber(cost.amount)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr className="ac-total-row">
+                                                    <td colSpan={2} className="ac-total-label">جمع هزینه‌های اضافی</td>
+                                                    <td className="ac-total-value">
+                                                        {formatNumber(purchaseData.additional_costs.reduce((s, c) => s + c.amount, 0))}
+                                                    </td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
+                                    </div>
                                 </div>
                             )}
 
@@ -881,6 +812,7 @@ export default function PurchaseInvoice({
                             </div>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
         </>
