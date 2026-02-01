@@ -94,10 +94,10 @@ export default function PurchaseInvoice({
                 .invoice-card {
                     background: white;
                     width: 210mm;
-                    min-height: 297mm;
-                    margin: 40px auto;
+                    min-height: auto;
+                    margin: 16px auto;
                     padding: 0;
-                    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.15);
+                    box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.12);
                     position: relative;
                     direction: rtl;
                     unicode-bidi: embed;
@@ -108,13 +108,13 @@ export default function PurchaseInvoice({
                 }
 
                 .invoice-header-bg {
-                    height: 12px;
+                    height: 6px;
                     background: linear-gradient(90deg, #047857 0%, #10b981 100%);
                     width: 100%;
                 }
 
                 .invoice-content {
-                    padding: 40px 50px;
+                    padding: 16px 20px;
                     flex: 1;
                     display: flex;
                     flex-direction: column;
@@ -128,12 +128,12 @@ export default function PurchaseInvoice({
                     align-items: center;
                     background: #ecfdf5;
                     color: #047857;
-                    padding: 8px 20px;
-                    border-radius: 12px;
-                    font-size: 14px;
-                    font-weight: 800;
+                    padding: 4px 10px;
+                    border-radius: 8px;
+                    font-size: 11px;
+                    font-weight: 700;
                     letter-spacing: 0.02em;
-                    margin-bottom: 20px;
+                    margin-bottom: 8px;
                     border: 1px solid #d1fae5;
                 }
 
@@ -141,22 +141,22 @@ export default function PurchaseInvoice({
                     display: flex;
                     justify-content: space-between;
                     align-items: flex-start;
-                    margin-bottom: 50px;
-                    border-bottom: 2px solid #f1f5f9;
-                    padding-bottom: 40px;
+                    margin-bottom: 20px;
+                    border-bottom: 1px solid #f1f5f9;
+                    padding-bottom: 16px;
                 }
 
                 .company-logo-container {
-                    width: 90px;
-                    height: 90px;
+                    width: 48px;
+                    height: 48px;
                     background: #ffffff;
-                    border-radius: 18px;
+                    border-radius: 10px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     overflow: hidden;
-                    border: 2px solid #e2e8f0;
-                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                    border: 1px solid #e2e8f0;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
                 }
 
                 .company-logo-img {
@@ -166,89 +166,89 @@ export default function PurchaseInvoice({
                 }
 
                 .company-info-text h1 {
-                    font-size: 32px;
-                    font-weight: 900;
+                    font-size: 18px;
+                    font-weight: 800;
                     color: #0f172a;
-                    margin: 0 0 10px 0;
+                    margin: 0 0 4px 0;
                     letter-spacing: -0.02em;
                 }
 
                 .company-info-subtitle {
                     color: #64748b;
                     font-weight: 500;
-                    font-size: 15px;
+                    font-size: 11px;
                 }
 
                 .info-grid {
                     display: grid;
                     grid-template-columns: 1fr 1fr;
-                    gap: 60px;
-                    margin-bottom: 50px;
+                    gap: 20px;
+                    margin-bottom: 20px;
                 }
 
                 .info-card h3 {
-                    font-size: 13px;
+                    font-size: 10px;
                     font-weight: 700;
                     color: #94a3b8;
                     text-transform: uppercase;
                     letter-spacing: 0.05em;
-                    margin-bottom: 16px;
+                    margin-bottom: 8px;
                 }
 
                 .info-card-content {
                     background: #f8fafc;
-                    border-radius: 16px;
-                    padding: 24px;
+                    border-radius: 10px;
+                    padding: 12px;
                     border: 1px solid #e2e8f0;
                 }
 
                 .info-main-text {
-                    font-size: 18px;
+                    font-size: 13px;
                     font-weight: 700;
                     color: #1e293b;
-                    margin-bottom: 12px;
+                    margin-bottom: 6px;
                 }
 
                 .info-sub-text {
-                    font-size: 14px;
+                    font-size: 11px;
                     color: #64748b;
-                    line-height: 1.6;
+                    line-height: 1.4;
                     display: flex;
                     flex-direction: column;
-                    gap: 4px;
+                    gap: 2px;
                 }
 
                 .invoice-meta {
                     text-align: left;
                     display: flex;
                     flex-direction: column;
-                    gap: 10px;
+                    gap: 4px;
                 }
 
                 .meta-item {
                     display: flex;
                     justify-content: flex-end;
                     align-items: center;
-                    gap: 16px;
+                    gap: 8px;
                 }
 
                 .meta-label {
                     color: #64748b;
-                    font-size: 14px;
+                    font-size: 11px;
                     font-weight: 500;
                 }
 
                 .meta-value {
                     color: #0f172a;
                     font-weight: 700;
-                    font-size: 16px;
+                    font-size: 12px;
                     direction: ltr;
                     unicode-bidi: embed;
                 }
 
                 .table-container {
-                    margin-bottom: 40px;
-                    border-radius: 16px;
+                    margin-bottom: 16px;
+                    border-radius: 10px;
                     overflow: hidden;
                     border: 1px solid #e2e8f0;
                 }
@@ -260,9 +260,9 @@ export default function PurchaseInvoice({
 
                 .modern-table th {
                     background: #f8fafc;
-                    padding: 20px 24px;
+                    padding: 8px 12px;
                     text-align: right;
-                    font-size: 13px;
+                    font-size: 10px;
                     font-weight: 700;
                     color: #475569;
                     border-bottom: 1px solid #e2e8f0;
@@ -272,9 +272,9 @@ export default function PurchaseInvoice({
                 }
 
                 .modern-table td {
-                    padding: 20px 24px;
+                    padding: 8px 12px;
                     border-bottom: 1px solid #f1f5f9;
-                    font-size: 15px;
+                    font-size: 11px;
                     color: #334155;
                     vertical-align: middle;
                 }
@@ -290,7 +290,7 @@ export default function PurchaseInvoice({
                 .modern-table .product-name {
                     font-weight: 600;
                     color: #0f172a;
-                    font-size: 15px;
+                    font-size: 11px;
                 }
 
                 .modern-table td.row-total {
@@ -306,120 +306,16 @@ export default function PurchaseInvoice({
                 }
 
                 .additional-costs-section {
-                    margin-bottom: 32px;
+                    margin-bottom: 16px;
                 }
 
-                .additional-costs-header {
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    margin-bottom: 14px;
-                }
-
-                .additional-costs-icon {
-                    width: 28px;
-                    height: 28px;
-                    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-                    color: white;
-                    border-radius: 10px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 16px;
-                    font-weight: 800;
-                    line-height: 1;
-                }
-
-                .additional-costs-title {
-                    font-size: 14px;
+                .additional-costs-section .section-label {
+                    font-size: 10px;
                     font-weight: 700;
-                    color: #64748b;
+                    color: #94a3b8;
                     text-transform: uppercase;
-                    letter-spacing: 0.06em;
-                    margin: 0;
-                }
-
-                .additional-costs-card {
-                    background: #fffbeb;
-                    border: 1px solid #fde68a;
-                    border-radius: 16px;
-                    overflow: hidden;
-                    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.08);
-                }
-
-                .additional-costs-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-size: 14px;
-                }
-
-                .additional-costs-table thead tr {
-                    background: #fef3c7;
-                    border-bottom: 1px solid #fde68a;
-                }
-
-                .additional-costs-table th {
-                    padding: 14px 20px;
-                    text-align: right;
-                    font-weight: 700;
-                    color: #92400e;
-                    font-size: 12px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.04em;
-                }
-
-                .ac-col-num { width: 56px; text-align: center; }
-                .ac-col-desc { min-width: 0; }
-                .ac-col-amount { width: 140px; text-align: left; }
-
-                .additional-costs-table .ac-row td {
-                    padding: 14px 20px;
-                    border-bottom: 1px solid #fef3c7;
-                    color: #334155;
-                    vertical-align: middle;
-                    direction: rtl;
-                    unicode-bidi: embed;
-                    text-align: right;
-                }
-
-                .additional-costs-table .ac-row:last-child td {
-                    border-bottom: none;
-                }
-
-                .additional-costs-table .ac-desc {
-                    font-weight: 600;
-                    color: #1e293b;
-                }
-
-                .additional-costs-table .ac-amount {
-                    font-weight: 700;
-                    color: #059669;
-                    direction: ltr;
-                    unicode-bidi: embed;
-                    text-align: left;
-                }
-
-                .additional-costs-table tfoot .ac-total-row {
-                    background: #fef3c7;
-                    border-top: 2px solid #f59e0b;
-                }
-
-                .additional-costs-table tfoot .ac-total-row td {
-                    padding: 16px 20px;
-                    font-weight: 800;
-                    font-size: 15px;
-                    color: #0f172a;
-                }
-
-                .ac-total-label {
-                    text-align: right;
-                }
-
-                .ac-total-value {
-                    text-align: left;
-                    color: #047857;
-                    direction: ltr;
-                    unicode-bidi: embed;
+                    letter-spacing: 0.05em;
+                    margin-bottom: 8px;
                 }
 
                 .summary-section {
@@ -427,76 +323,76 @@ export default function PurchaseInvoice({
                     justify-content: space-between;
                     align-items: flex-start;
                     margin-top: auto;
-                    padding-top: 30px;
+                    padding-top: 16px;
                 }
 
                 .footer-notes {
                     flex: 1;
                     max-width: 50%;
-                    padding-left: 40px;
+                    padding-left: 16px;
                 }
 
                 .notes-title {
-                    font-size: 14px;
+                    font-size: 10px;
                     font-weight: 700;
                     color: #1e293b;
-                    margin-bottom: 10px;
+                    margin-bottom: 4px;
                 }
 
                 .notes-body {
-                    font-size: 13px;
+                    font-size: 10px;
                     color: #64748b;
-                    line-height: 1.7;
+                    line-height: 1.5;
                     background: #fff;
                     border: 1px dashed #cbd5e1;
-                    border-radius: 12px;
-                    padding: 16px;
+                    border-radius: 8px;
+                    padding: 8px;
                 }
 
                 .total-card {
                     background: #0f172a;
                     color: white;
-                    padding: 32px;
-                    border-radius: 20px;
-                    width: 360px;
-                    box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.3);
+                    padding: 16px 20px;
+                    border-radius: 12px;
+                    width: 240px;
+                    box-shadow: 0 8px 20px -6px rgba(15, 23, 42, 0.3);
                 }
 
                 .total-row {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    margin-bottom: 16px;
+                    margin-bottom: 8px;
                 }
                 
                 .total-row:last-child {
                     margin-bottom: 0;
-                    padding-top: 20px;
-                    margin-top: 20px;
+                    padding-top: 10px;
+                    margin-top: 10px;
                     border-top: 1px solid rgba(255,255,255,0.15);
                 }
 
                 .total-label {
-                    font-size: 15px;
+                    font-size: 11px;
                     color: #94a3b8;
                     font-weight: 500;
                 }
 
                 .total-value {
-                    font-size: 18px;
+                    font-size: 12px;
                     font-weight: 600;
                     color: #f8fafc;
                     direction: ltr;
                 }
 
                 .grand-total-label {
-                    font-size: 18px;
+                    font-size: 12px;
                     font-weight: 600;
                     color: #fff;
                 }
 
                 .grand-total-value {
-                    font-size: 32px;
+                    font-size: 18px;
                     font-weight: 800;
                     color: #34d399;
                     direction: ltr;
@@ -504,7 +400,7 @@ export default function PurchaseInvoice({
 
                 .footer-bottom {
                     background: #f8fafc;
-                    padding: 24px 50px;
+                    padding: 12px 20px;
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
@@ -513,7 +409,7 @@ export default function PurchaseInvoice({
                 
                 .signature-area {
                     display: flex;
-                    gap: 60px;
+                    gap: 24px;
                 }
                 
                 .signature-box {
@@ -521,33 +417,33 @@ export default function PurchaseInvoice({
                 }
                 
                 .signature-line {
-                    width: 140px;
+                    width: 80px;
                     height: 1px;
                     background: #cbd5e1;
-                    margin-bottom: 12px;
+                    margin-bottom: 6px;
                 }
                 
                 .signature-text {
-                    font-size: 11px;
+                    font-size: 9px;
                     font-weight: 700;
                     color: #94a3b8;
                     text-transform: uppercase;
-                    letter-spacing: 0.1em;
+                    letter-spacing: 0.08em;
                 }
 
                 .qr-section {
                     display: flex;
                     align-items: center;
-                    gap: 16px;
+                    gap: 8px;
                     background: white;
-                    padding: 10px;
-                    border-radius: 12px;
+                    padding: 6px;
+                    border-radius: 8px;
                     border: 1px solid #e2e8f0;
                 }
 
                 .qr-img {
-                    width: 60px;
-                    height: 60px;
+                    width: 40px;
+                    height: 40px;
                     object-fit: contain;
                 }
 
@@ -557,15 +453,15 @@ export default function PurchaseInvoice({
                 }
 
                 .qr-title {
-                    font-size: 12px;
+                    font-size: 10px;
                     font-weight: 800;
                     color: #0f172a;
                 }
                 
                 .qr-subtitle {
-                    font-size: 10px;
+                    font-size: 8px;
                     color: #64748b;
-                    margin-top: 2px;
+                    margin-top: 1px;
                 }
 
                 @media print {
@@ -719,36 +615,31 @@ export default function PurchaseInvoice({
 
                             {purchaseData.additional_costs && purchaseData.additional_costs.length > 0 && (
                                 <div className="additional-costs-section">
-                                    <div className="additional-costs-header">
-                                        <span className="additional-costs-icon">+</span>
-                                        <h3 className="additional-costs-title">هزینه‌های اضافی</h3>
-                                    </div>
-                                    <div className="additional-costs-card">
-                                        <table className="additional-costs-table">
+                                    <div className="section-label">هزینه‌های اضافی</div>
+                                    <div className="table-container">
+                                        <table className="modern-table">
                                             <thead>
                                                 <tr>
-                                                    <th className="ac-col-num">#</th>
-                                                    <th className="ac-col-desc">شرح</th>
-                                                    <th className="ac-col-amount">مبلغ</th>
+                                                    <th style={{ width: "60px" }} className="text-center">#</th>
+                                                    <th>شرح</th>
+                                                    <th style={{ width: "160px" }} className="text-left">مبلغ</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {purchaseData.additional_costs.map((cost, idx) => (
-                                                    <tr key={cost.id ?? idx} className="ac-row">
-                                                        <td className="ac-col-num">{idx + 1}</td>
-                                                        <td className="ac-col-desc ac-desc">{cost.name}</td>
-                                                        <td className="ac-col-amount ac-amount">{formatNumber(cost.amount)}</td>
+                                                    <tr key={cost.id ?? idx}>
+                                                        <td className="text-center text-slate-400 font-bold text-sm">{idx + 1}</td>
+                                                        <td className="product-name">{cost.name}</td>
+                                                        <td className="text-left row-total">{formatNumber(cost.amount)}</td>
                                                     </tr>
                                                 ))}
-                                            </tbody>
-                                            <tfoot>
-                                                <tr className="ac-total-row">
-                                                    <td colSpan={2} className="ac-total-label">جمع هزینه‌های اضافی</td>
-                                                    <td className="ac-total-value">
+                                                <tr style={{ background: "#f8fafc", fontWeight: 700 }}>
+                                                    <td colSpan={2} className="text-right" style={{ padding: "8px 12px" }}>جمع هزینه‌های اضافی</td>
+                                                    <td className="text-left row-total" style={{ padding: "8px 12px" }}>
                                                         {formatNumber(purchaseData.additional_costs.reduce((s, c) => s + c.amount, 0))}
                                                     </td>
                                                 </tr>
-                                            </tfoot>
+                                            </tbody>
                                         </table>
                                     </div>
                                 </div>
@@ -777,7 +668,6 @@ export default function PurchaseInvoice({
                                         <span className="grand-total-label">مبلغ قابل پرداخت</span>
                                         <span className="grand-total-value">
                                             {formatNumber(purchaseData.purchase.total_amount)}
-                                            <span className="text-sm font-light text-emerald-400 pr-1">ریال</span>
                                         </span>
                                     </div>
                                 </div>
