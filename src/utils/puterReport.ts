@@ -68,7 +68,9 @@ export interface GenerateReportResult {
 const TABLE_WHITELIST = new Set([
   "users", "currencies", "suppliers", "customers", "unit_groups", "units", "products",
   "purchases", "purchase_items", "purchase_additional_costs", "purchase_payments",
-  "sales", "sale_items", "sale_payments", "sale_additional_costs", "expense_types", "expenses",
+  "sales", "sale_items", "sale_payments", "sale_additional_costs",
+  "services", "service_items", "service_payments",
+  "expense_types", "expenses",
   "employees", "salaries", "deductions", "company_settings", "coa_categories",
   "account_currency_balances", "journal_entries", "journal_entry_lines", "currency_exchange_rates",
   "accounts", "account_transactions"

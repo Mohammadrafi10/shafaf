@@ -90,6 +90,24 @@ export const REPORT_SCHEMA = `
 - sale_id INTEGER -> sales(id), name TEXT, amount REAL
 - created_at DATETIME
 
+### services
+- id INTEGER PK
+- customer_id INTEGER -> customers(id), date TEXT, notes TEXT
+- currency_id INTEGER -> currencies(id), exchange_rate REAL
+- total_amount REAL, base_amount REAL, paid_amount REAL
+- created_at, updated_at DATETIME
+
+### service_items
+- id INTEGER PK
+- service_id INTEGER -> services(id), name TEXT, price REAL, quantity REAL, total REAL
+- created_at DATETIME
+
+### service_payments
+- id INTEGER PK
+- service_id INTEGER -> services(id), account_id INTEGER -> accounts(id), currency_id INTEGER -> currencies(id)
+- exchange_rate REAL, amount REAL, base_amount REAL, date TEXT
+- created_at DATETIME
+
 ### expense_types
 - id INTEGER PK
 - name TEXT UNIQUE

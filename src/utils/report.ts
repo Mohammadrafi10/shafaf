@@ -194,6 +194,165 @@ export async function generateSalesReport(
 }
 
 /**
+ * Generate Services Report filtered by date range
+ */
+export async function generateServicesReport(
+  fromDate: string,
+  toDate: string
+): Promise<ReportData> {
+  const from = fromDate;
+  const to = toDate;
+
+  const servicesQuery = `
+    SELECT 
+      s.id,
+      s.date,
+      c.full_name as customer_name,
+      s.total_amount,
+      s.base_amount,
+      s.paid_amount,
+      (s.base_amount - s.paid_amount) as remaining_amount,
+      s.notes,
+      curr.name as currency_name,
+      s.exchange_rate
+    FROM services s
+    LEFT JOIN customers c ON s.customer_id = c.id
+    LEFT JOIN currencies curr ON s.currency_id = curr.id
+    WHERE s.date >= ? AND s.date <= ?
+    ORDER BY s.date DESC, s.id DESC
+  `;
+
+  const servicesResult = await queryDatabase(servicesQuery, [from, to]);
+  const services = resultToObjects(servicesResult);
+
+  const serviceIds = services.map((s: any) => s.id);
+  let serviceItems: any[] = [];
+  if (serviceIds.length > 0) {
+    const placeholders = serviceIds.map(() => "?").join(",");
+    const itemsQuery = `
+      SELECT 
+        si.service_id,
+        si.name as item_name,
+        si.price,
+        si.quantity,
+        si.total
+      FROM service_items si
+      WHERE si.service_id IN (${placeholders})
+      ORDER BY si.service_id, si.id
+    `;
+    const itemsResult = await queryDatabase(itemsQuery, serviceIds);
+    serviceItems = resultToObjects(itemsResult);
+  }
+
+  let servicePayments: any[] = [];
+  if (serviceIds.length > 0) {
+    const placeholders = serviceIds.map(() => "?").join(",");
+    const paymentsQuery = `
+      SELECT 
+        sp.service_id,
+        sp.amount,
+        sp.base_amount,
+        sp.date as payment_date,
+        a.name as account_name,
+        curr.name as currency_name
+      FROM service_payments sp
+      LEFT JOIN accounts a ON sp.account_id = a.id
+      LEFT JOIN currencies curr ON sp.currency_id = curr.id
+      WHERE sp.service_id IN (${placeholders})
+      ORDER BY sp.service_id, sp.date
+    `;
+    const paymentsResult = await queryDatabase(paymentsQuery, serviceIds);
+    servicePayments = resultToObjects(paymentsResult);
+  }
+
+  const totalAmount = services.reduce((sum: number, s: any) => sum + (s.base_amount || 0), 0);
+  const paidAmount = services.reduce((sum: number, s: any) => sum + (s.paid_amount || 0), 0);
+  const remainingAmount = totalAmount - paidAmount;
+
+  const formattedServices = services.map((svc: any) => ({
+    ...svc,
+    date_persian: georgianToPersian(svc.date),
+    total_amount_formatted: formatPersianNumber(svc.total_amount || 0),
+    base_amount_formatted: formatPersianNumber(svc.base_amount || 0),
+    paid_amount_formatted: formatPersianNumber(svc.paid_amount || 0),
+    remaining_amount_formatted: formatPersianNumber(svc.remaining_amount || 0),
+  }));
+
+  return {
+    title: "گزارش خدمات",
+    type: "services",
+    dateRange: { from, to },
+    summary: {
+      totalCount: services.length,
+      totalAmount,
+      paidAmount,
+      remainingAmount,
+    },
+    sections: [
+      {
+        title: "خلاصه گزارش",
+        type: "summary",
+        data: [
+          { label: "تعداد کل خدمات", value: formatPersianNumber(services.length) },
+          { label: "مجموع مبلغ", value: formatPersianNumber(totalAmount) },
+          { label: "مبلغ پرداخت شده", value: formatPersianNumber(paidAmount) },
+          { label: "مبلغ باقیمانده", value: formatPersianNumber(remainingAmount) },
+        ],
+      },
+      {
+        title: "لیست خدمات",
+        type: "table",
+        columns: [
+          { key: "id", label: "شماره" },
+          { key: "date_persian", label: "تاریخ" },
+          { key: "customer_name", label: "مشتری" },
+          { key: "base_amount_formatted", label: "مبلغ کل" },
+          { key: "paid_amount_formatted", label: "پرداخت شده" },
+          { key: "remaining_amount_formatted", label: "باقیمانده" },
+          { key: "currency_name", label: "ارز" },
+        ],
+        data: formattedServices,
+      },
+      {
+        title: "اقلام خدمات",
+        type: "table",
+        columns: [
+          { key: "service_id", label: "شماره خدمت" },
+          { key: "item_name", label: "نام آیتم" },
+          { key: "quantity", label: "مقدار" },
+          { key: "price", label: "قیمت واحد" },
+          { key: "total", label: "جمع" },
+        ],
+        data: serviceItems.map((item: any) => ({
+          ...item,
+          price: formatPersianNumber(item.price || 0),
+          quantity: formatPersianNumber(item.quantity || 0),
+          total: formatPersianNumber(item.total || 0),
+        })),
+      },
+      {
+        title: "پرداخت‌های خدمات",
+        type: "table",
+        columns: [
+          { key: "service_id", label: "شماره خدمت" },
+          { key: "payment_date", label: "تاریخ پرداخت" },
+          { key: "amount", label: "مبلغ" },
+          { key: "base_amount", label: "مبلغ پایه" },
+          { key: "account_name", label: "حساب" },
+          { key: "currency_name", label: "ارز" },
+        ],
+        data: servicePayments.map((payment: any) => ({
+          ...payment,
+          payment_date: georgianToPersian(payment.payment_date),
+          amount: formatPersianNumber(payment.amount || 0),
+          base_amount: formatPersianNumber(payment.base_amount || 0),
+        })),
+      },
+    ],
+  };
+}
+
+/**
  * Generate Purchase Report filtered by date range
  */
 export async function generatePurchaseReport(

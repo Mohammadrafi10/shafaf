@@ -5,6 +5,7 @@ import moment from "moment-jalaali";
 import PersianDatePicker from "./PersianDatePicker";
 import {
   generateSalesReport,
+  generateServicesReport,
   generatePurchaseReport,
   generateExpenseReport,
   generateAccountReport,
@@ -23,6 +24,7 @@ interface ReportProps {
 
 type ReportType =
   | "sales"
+  | "services"
   | "purchases"
   | "expenses"
   | "accounts"
@@ -33,6 +35,7 @@ type ReportType =
 
 const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "sales", label: "گزارش فروشات" },
+  { value: "services", label: "گزارش خدمات" },
   { value: "purchases", label: "گزارش خریداری‌ها" },
   { value: "expenses", label: "گزارش مصارف" },
   { value: "accounts", label: "گزارش حساب‌ها" },
@@ -130,6 +133,9 @@ export default function Report({ onBack }: ReportProps) {
       switch (reportType) {
         case "sales":
           data = await generateSalesReport(from, to);
+          break;
+        case "services":
+          data = await generateServicesReport(from, to);
           break;
         case "purchases":
           data = await generatePurchaseReport(from, to);
