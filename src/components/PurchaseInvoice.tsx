@@ -569,68 +569,64 @@ export default function PurchaseInvoice({
                 }
 
                 @media print {
-                    body * { visibility: hidden; }
-                    .invoice-print-area,
-                    .invoice-print-area * { visibility: visible; }
-                    .invoice-print-area {
-                        position: absolute !important;
-                        left: 0 !important;
-                        top: 0 !important;
-                        width: 100% !important;
-                        min-height: 100vh !important;
+                    .invoice-page-wrapper {
+                        position: static !important;
                         background: white !important;
-                        box-shadow: none !important;
-                        margin: 0 !important;
-                        border-radius: 0 !important;
+                        padding: 0 !important;
+                        overflow: visible !important;
+                    }
+                    .invoice-page-wrapper .no-print { display: none !important; }
+                    .invoice-print-area {
+                        position: static !important;
+                        width: 100% !important;
+                        overflow: visible !important;
+                        background: white !important;
                     }
                     .invoice-card { 
                         box-shadow: none; 
                         margin: 0 auto; 
                         width: 210mm;
-                        min-height: auto;
+                        min-height: auto !important;
+                        overflow: visible !important;
                         border-radius: 0;
                         border: none;
+                        page-break-after: auto;
                     }
-                    .no-print { display: none !important; }
+                    .invoice-content { overflow: visible !important; }
+                    .table-container { overflow: visible !important; page-break-inside: auto; }
+                    .modern-table { page-break-inside: auto; }
                     .print-break-inside { break-inside: avoid; }
                 }
             `}</style>
 
-            <div className="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/80 backdrop-blur-md p-8 overflow-y-auto invoice-root" dir="rtl">
+            <div className="invoice-page-wrapper min-h-screen bg-slate-100 dark:bg-gray-900 py-6 px-4 overflow-y-auto invoice-root" dir="rtl">
                 <div className="max-w-[230mm] w-full mx-auto">
-                    <div className="no-print flex flex-col md:flex-row justify-between items-center mb-6 gap-4 px-2">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400">
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h2 className="text-white text-xl font-bold">پیش‌نمایش فاکتور</h2>
-                                <p className="text-slate-400 text-sm">چاپ یا ذخیره به PDF از طریق دکمهٔ چاپ</p>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-3">
-                            <button
-                                type="button"
-                                onClick={handlePrint}
-                                className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white rounded-xl shadow-lg font-bold flex items-center gap-2"
-                            >
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2h-2a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                                </svg>
-                                چاپ فاکتور
-                            </button>
+                    <div className="no-print flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
                             {onClose && (
                                 <button
                                     type="button"
                                     onClick={onClose}
-                                    className="px-6 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all font-bold"
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border-2 border-gray-300 dark:border-gray-600 rounded-xl font-bold shadow-md transition-all"
                                 >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                    </svg>
                                     بستن
                                 </button>
                             )}
+                            <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">فاکتور خرید</h2>
                         </div>
+                        <button
+                            type="button"
+                            onClick={handlePrint}
+                            className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg transition-all"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2h-2a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                            </svg>
+                            چاپ فاکتور
+                        </button>
                     </div>
 
                     <div className="invoice-print-area">

@@ -649,6 +649,20 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
     }
   };
 
+  // Invoice opens as separate full page (not modal)
+  if (showInvoice && viewingPurchase) {
+    return (
+      <PurchaseInvoice
+        purchaseData={viewingPurchase}
+        supplier={suppliers.find(s => s.id === viewingPurchase.purchase.supplier_id)!}
+        products={products}
+        units={units}
+        companySettings={companySettings}
+        onClose={() => setShowInvoice(false)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6" dir="rtl">
       <div className="max-w-7xl mx-auto">
@@ -2169,17 +2183,6 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
           )}
         </AnimatePresence>
 
-        {/* Invoice Modal */}
-        {showInvoice && viewingPurchase && (
-          <PurchaseInvoice
-            purchaseData={viewingPurchase}
-            supplier={suppliers.find(s => s.id === viewingPurchase.purchase.supplier_id)!}
-            products={products}
-            units={units}
-            companySettings={companySettings}
-            onClose={() => setShowInvoice(false)}
-          />
-        )}
         <Footer />
       </div>
     </div>
