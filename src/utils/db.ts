@@ -50,6 +50,15 @@ export async function backupDatabase(): Promise<string> {
 }
 
 /**
+ * Save backup to a user-selected path (from save dialog). Backend performs the copy.
+ * @param destPath Full path where the backup file should be saved
+ * @returns Promise with the destination path on success
+ */
+export async function saveBackupToPath(destPath: string): Promise<string> {
+  return await invoke<string>("save_backup_to_path", { destPath });
+}
+
+/**
  * Create a daily backup in the app data folder (backups subfolder). Used by the automatic daily backup scheduler.
  * @returns Promise with the backup file path
  */

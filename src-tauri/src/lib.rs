@@ -99,6 +99,18 @@ fn backup_database(app: AppHandle) -> Result<String, String> {
     Ok(db_path.to_string_lossy().to_string())
 }
 
+/// Copy the database to a user-selected path (e.g. from save dialog). Backend has full fs access.
+#[tauri::command]
+fn save_backup_to_path(app: AppHandle, dest_path: String) -> Result<String, String> {
+    let db_path = get_db_path(&app, "")?;
+    if !db_path.exists() {
+        return Err("Database file does not exist".to_string());
+    }
+    let dest = std::path::Path::new(&dest_path);
+    fs::copy(&db_path, dest).map_err(|e: io::Error| format!("Failed to save backup: {}", e))?;
+    Ok(dest_path)
+}
+
 /// Create a daily backup in the app data folder (backups subfolder). Called by the frontend scheduler after login.
 #[tauri::command]
 fn create_daily_backup(app: AppHandle) -> Result<String, String> {
@@ -8559,6 +8571,7 @@ pub fn run() {
             db_query,
             get_database_path,
             backup_database,
+            save_backup_to_path,
             create_daily_backup,
             init_users_table,
             register_user,

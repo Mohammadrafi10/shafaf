@@ -3,12 +3,11 @@ import { motion } from "framer-motion";
 import {
   openDatabase,
   isDatabaseOpen,
-  backupDatabase,
+  saveBackupToPath,
   restoreDatabase,
   createDailyBackup,
 } from "./utils/db";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { readFile, writeFile } from "@tauri-apps/plugin-fs";
 import toast from "react-hot-toast";
 import { getDashboardStats, formatPersianNumber, formatLargeNumber } from "./utils/dashboard";
 import { playClickSound } from "./utils/sound";
@@ -296,10 +295,7 @@ function App() {
 
   const handleBackupDatabase = async () => {
     try {
-      // Get database path
-      const dbPath = await backupDatabase();
-      
-      // Open save dialog
+      // Open save dialog first so user picks where to save
       const filePath = await save({
         defaultPath: `db-backup-${new Date().toISOString().split('T')[0]}.sqlite`,
         filters: [{
@@ -309,12 +305,8 @@ function App() {
       });
 
       if (filePath) {
-        // Read the database file
-        const fileData = await readFile(dbPath);
-        
-        // Write to selected location
-        await writeFile(filePath, fileData);
-        
+        // Backend copies the database to the selected path (avoids fs plugin scope limits)
+        await saveBackupToPath(filePath);
         toast.success("پشتیبان‌گیری با موفقیت انجام شد");
       }
     } catch (error: any) {
