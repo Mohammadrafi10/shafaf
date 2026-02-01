@@ -75,6 +75,7 @@ function App() {
     products: Product[];
     units: Unit[];
     payments: SalePayment[];
+    currencyName?: string;
   } | null>(null);
   const [aiCreateUpdateOpen, setAiCreateUpdateOpen] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -504,6 +505,7 @@ function App() {
         units={invoiceData.units}
         payments={invoiceData.payments}
         companySettings={companySettings}
+        currencyName={invoiceData.currencyName}
         onClose={() => setCurrentPage("sales")}
       />
     );

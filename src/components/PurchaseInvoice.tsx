@@ -13,6 +13,7 @@ interface PurchaseInvoiceProps {
     products: Product[];
     units: Unit[];
     companySettings?: CompanySettings | null;
+    currencyName?: string;
     onClose?: () => void;
 }
 
@@ -22,6 +23,7 @@ export default function PurchaseInvoice({
     products,
     units,
     companySettings,
+    currencyName,
     onClose,
 }: PurchaseInvoiceProps) {
     const printRef = useRef<HTMLDivElement>(null);
@@ -81,6 +83,8 @@ export default function PurchaseInvoice({
         const unit = units.find((u: Unit) => u.id === unitId);
         return unit?.name || "نامشخص";
     };
+
+    const currencyLabel = currencyName ? ` ${currencyName}` : "";
 
     return (
         <>
@@ -594,8 +598,8 @@ export default function PurchaseInvoice({
                                             <th>شرح کالا / خدمات</th>
                                             <th style={{ width: "100px" }} className="text-center">واحد</th>
                                             <th style={{ width: "100px" }} className="text-center">تعداد</th>
-                                            <th style={{ width: "140px" }} className="text-left">فی (واحد)</th>
-                                            <th style={{ width: "160px" }} className="text-left">مبلغ کل</th>
+                                            <th style={{ width: "140px" }} className="text-left">فی (واحد){currencyLabel}</th>
+                                            <th style={{ width: "160px" }} className="text-left">مبلغ کل{currencyLabel}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -605,8 +609,8 @@ export default function PurchaseInvoice({
                                                 <td className="product-name">{getProductName(item.product_id)}</td>
                                                 <td className="text-center text-slate-500 bg-slate-50/50 rounded-lg mx-2">{getUnitName(item.unit_id)}</td>
                                                 <td className="text-center font-bold text-slate-700">{formatNumber(item.amount)}</td>
-                                                <td className="text-left font-medium text-slate-600">{formatNumber(item.per_price)}</td>
-                                                <td className="text-left row-total">{formatNumber(item.total)}</td>
+                                                <td className="text-left font-medium text-slate-600">{formatNumber(item.per_price)}{currencyLabel}</td>
+                                                <td className="text-left row-total">{formatNumber(item.total)}{currencyLabel}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -622,7 +626,7 @@ export default function PurchaseInvoice({
                                                 <tr>
                                                     <th style={{ width: "60px" }} className="text-center">#</th>
                                                     <th>شرح</th>
-                                                    <th style={{ width: "160px" }} className="text-left">مبلغ</th>
+                                                    <th style={{ width: "160px" }} className="text-left">مبلغ{currencyLabel}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -630,13 +634,13 @@ export default function PurchaseInvoice({
                                                     <tr key={cost.id ?? idx}>
                                                         <td className="text-center text-slate-400 font-bold text-sm">{idx + 1}</td>
                                                         <td className="product-name">{cost.name}</td>
-                                                        <td className="text-left row-total">{formatNumber(cost.amount)}</td>
+                                                        <td className="text-left row-total">{formatNumber(cost.amount)}{currencyLabel}</td>
                                                     </tr>
                                                 ))}
                                                 <tr style={{ background: "#f8fafc", fontWeight: 700 }}>
                                                     <td colSpan={2} className="text-right" style={{ padding: "8px 12px" }}>جمع هزینه‌های اضافی</td>
                                                     <td className="text-left row-total" style={{ padding: "8px 12px" }}>
-                                                        {formatNumber(purchaseData.additional_costs.reduce((s, c) => s + c.amount, 0))}
+                                                        {formatNumber(purchaseData.additional_costs.reduce((s, c) => s + c.amount, 0))}{currencyLabel}
                                                     </td>
                                                 </tr>
                                             </tbody>
@@ -658,7 +662,7 @@ export default function PurchaseInvoice({
                                 <div className="total-card print-break-inside">
                                     <div className="total-row">
                                         <span className="total-label">جمع کل</span>
-                                        <span className="total-value">{formatNumber(purchaseData.purchase.total_amount)}</span>
+                                        <span className="total-value">{formatNumber(purchaseData.purchase.total_amount)}{currencyLabel}</span>
                                     </div>
                                     <div className="total-row" style={{ opacity: 0.7 }}>
                                         <span className="total-label">مالیات و عوارض</span>
@@ -667,7 +671,7 @@ export default function PurchaseInvoice({
                                     <div className="total-row">
                                         <span className="grand-total-label">مبلغ قابل پرداخت</span>
                                         <span className="grand-total-value">
-                                            {formatNumber(purchaseData.purchase.total_amount)}
+                                            {formatNumber(purchaseData.purchase.total_amount)}{currencyLabel}
                                         </span>
                                     </div>
                                 </div>

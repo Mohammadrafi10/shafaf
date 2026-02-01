@@ -107,6 +107,7 @@ interface SalesManagementProps {
         products: Product[];
         units: Unit[];
         payments: SalePayment[];
+        currencyName?: string;
     }) => void;
 }
 
@@ -772,24 +773,32 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             const salePayments = await getSalePayments(saleData.sale.id);
             const customer = customers.find(c => c.id === saleData.sale.customer_id);
             if (customer && onOpenInvoice) {
+                const currencyName = saleData.sale.currency_id
+                    ? currencies.find((c) => c.id === saleData.sale.currency_id)?.name
+                    : undefined;
                 onOpenInvoice({
                     saleData,
                     customer,
                     products,
                     units,
                     payments: salePayments,
+                    currencyName: currencyName ?? undefined,
                 });
             }
         } catch (error) {
             console.error("Error loading payments:", error);
             const customer = customers.find(c => c.id === saleData.sale.customer_id);
             if (customer && onOpenInvoice) {
+                const currencyName = saleData.sale.currency_id
+                    ? currencies.find((c) => c.id === saleData.sale.currency_id)?.name
+                    : undefined;
                 onOpenInvoice({
                     saleData,
                     customer,
                     products,
                     units,
                     payments: [],
+                    currencyName: currencyName ?? undefined,
                 });
             }
         }
