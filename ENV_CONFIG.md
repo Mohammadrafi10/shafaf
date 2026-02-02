@@ -47,3 +47,26 @@ The environment variables are loaded automatically when the application starts. 
 - Always use `.env.example` as a template for creating your `.env` file
 - Never commit your `.env` file to version control as it may contain sensitive information
 - A MySQL server must be running and the database created (or use `db_create` from the app) before opening the database
+
+## Troubleshooting
+
+### "Unknown authentication protocol: sha256_password"
+
+The app’s MySQL client supports **mysql_native_password** and **caching_sha2_password** only. It does not support the older **sha256_password** plugin.
+
+**Fix:** Change your MySQL user to use a supported plugin. On the MySQL server, run (replace `your_user`, `your_host`, and `your_password`):
+
+**Option 1 – mysql_native_password (recommended for compatibility):**
+```sql
+ALTER USER 'your_user'@'your_host' IDENTIFIED WITH mysql_native_password BY 'your_password';
+FLUSH PRIVILEGES;
+```
+
+**Option 2 – caching_sha2_password (MySQL 8 default):**
+```sql
+ALTER USER 'your_user'@'your_host' IDENTIFIED WITH caching_sha2_password BY 'your_password';
+FLUSH PRIVILEGES;
+```
+
+- `your_host` is often `'localhost'` or `'%'` (any host). Use the same host you use in your app (e.g. `127.0.0.1` → try `'127.0.0.1'` or `'%'`).
+- After changing the plugin, try connecting again from the app.
