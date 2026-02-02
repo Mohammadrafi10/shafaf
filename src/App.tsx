@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import {
   openDatabase,
   isDatabaseOpen,
+  createDatabase,
   saveBackupToPath,
   restoreDatabase,
   createDailyBackup,
@@ -58,6 +59,8 @@ type Page = "dashboard" | "currency" | "supplier" | "product" | "purchase" | "sa
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [licenseValid, setLicenseValid] = useState<boolean | null>(null);
+  const [dbReady, setDbReady] = useState<boolean | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [dashboardStats, setDashboardStats] = useState({
     productsCount: 0,
@@ -181,25 +184,45 @@ function App() {
     checkLicense();
   }, []);
 
-  // Initialize database on mount
-  useEffect(() => {
-    const initDb = async () => {
-      try {
-        const dbOpen = await isDatabaseOpen();
-        if (!dbOpen) {
-          // Open existing database (path from .env file or default)
-          try {
-            await openDatabase("db");
-          } catch (err: any) {
-            console.error("Database init error:", err);
-          }
-        }
-      } catch (err: any) {
-        console.log("Database init:", err);
+  // Ensure database exists and is open before showing login.
+  // If DB/tables exist, open; else create DB from env and run schema (db.sql).
+  const ensureDatabase = async () => {
+    setDbError(null);
+    setDbReady(null);
+    try {
+      const alreadyOpen = await isDatabaseOpen();
+      if (alreadyOpen) {
+        setDbReady(true);
+        return;
       }
-    };
-    initDb();
-  }, []);
+      try {
+        await openDatabase("");
+        setDbReady(true);
+        return;
+      } catch (openErr: any) {
+        // e.g. "Unknown database" or connection error — try creating DB and running schema
+        const msg = openErr?.message ?? String(openErr);
+        console.warn("Database open failed, will try create:", msg);
+      }
+      try {
+        await createDatabase("");
+        setDbReady(true);
+      } catch (createErr: any) {
+        const msg = createErr?.message ?? String(createErr);
+        setDbError(msg);
+        setDbReady(false);
+      }
+    } catch (err: any) {
+      setDbError(err?.message ?? "Database check failed");
+      setDbReady(false);
+    }
+  };
+
+  // Run database check when license is valid (before we might show login).
+  useEffect(() => {
+    if (licenseValid !== true) return;
+    ensureDatabase();
+  }, [licenseValid]);
 
   // Add global click sound handler
   useEffect(() => {
@@ -283,8 +306,40 @@ function App() {
     return <License onLicenseValid={() => setLicenseValid(true)} />;
   }
 
-  // Show login screen if not logged in
+  // Before login: ensure database exists and tables exist (open or create + import db.sql)
   if (!user) {
+    if (dbReady === null) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full"
+            />
+            <p className="text-gray-600 dark:text-gray-400">در حال بررسی پایگاه داده...</p>
+          </div>
+        </div>
+      );
+    }
+    if (dbReady === false) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 max-w-md w-full text-center">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">خطا در اتصال به پایگاه داده</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 break-all">{dbError ?? "پایگاه داده در دسترس نیست."}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-500 mb-4">از صحت تنظیمات MySQL در فایل .env اطمینان حاصل کنید.</p>
+            <button
+              type="button"
+              onClick={() => ensureDatabase()}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            >
+              تلاش مجدد
+            </button>
+          </div>
+        </div>
+      );
+    }
     return <Login onLoginSuccess={(user) => setUser(user)} />;
   }
 
