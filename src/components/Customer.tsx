@@ -804,7 +804,12 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage }: 
                       <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                         {translations.balance} - {selectedCustomer.full_name}
                       </h2>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      {selectedCustomer.phone && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-1" dir="ltr">
+                          {translations.phone}: {selectedCustomer.phone}
+                        </p>
+                      )}
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                         مشاهده فروش‌ها و پرداخت‌های مشتری
                       </p>
                     </div>
