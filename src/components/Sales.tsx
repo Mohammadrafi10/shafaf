@@ -15,11 +15,13 @@ import {
     getProductBatches,
     type Sale,
     type SaleItemInput,
+    type SaleServiceItemInput,
     type SaleWithItems,
     type SalePayment,
     type SaleAdditionalCost,
     type ProductBatch,
 } from "../utils/sales";
+import { getServices as getServiceCatalog, type Service as ServiceCatalogItem } from "../utils/service";
 import { getCustomers, type Customer } from "../utils/customer";
 import { getProducts, type Product } from "../utils/product";
 import { getUnits, type Unit } from "../utils/unit";
@@ -32,6 +34,7 @@ import { formatPersianDate, getCurrentPersianDate, persianToGeorgian } from "../
 import Table from "./common/Table";
 import PageHeader from "./common/PageHeader";
 import SearchableSelect from "./common/SearchableSelect";
+import { Search } from "lucide-react";
 
 // Dari translations
 const translations = {
@@ -46,9 +49,13 @@ const translations = {
     notes: "یادداشت",
     items: "آیتم‌ها",
     addItem: "افزودن آیتم",
+    addService: "افزودن خدمت",
+    serviceItems: "خدمات",
     removeItem: "حذف",
     product: "محصول",
+    service: "خدمت",
     unit: "واحد",
+    price: "قیمت",
     perPrice: "قیمت واحد",
     amount: "مقدار",
     total: "جمع کل",
@@ -135,7 +142,9 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         paid_amount: 0,
         additional_costs: [] as Array<{ name: string; amount: number }>,
         items: [] as SaleItemInput[],
+        service_items: [] as SaleServiceItemInput[],
     });
+    const [servicesCatalog, setServicesCatalog] = useState<ServiceCatalogItem[]>([]);
     const [payments, setPayments] = useState<SalePayment[]>([]);
     const [newPayment, setNewPayment] = useState({
         account_id: "",
@@ -237,13 +246,14 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                 console.log("Table initialization:", err);
             }
 
-            const [salesResponse, customersResponse, productsResponse, unitsData, currenciesData, accountsData] = await Promise.all([
+            const [salesResponse, customersResponse, productsResponse, unitsData, currenciesData, accountsData, servicesCatalogResponse] = await Promise.all([
                 getSales(page, perPage, search, sortBy, sortOrder),
                 getCustomers(1, 1000), // Get all customers (large page size)
                 getProducts(1, 1000), // Get all products (large page size)
                 getUnits(),
                 getCurrencies(),
                 getAccounts(), // Get all accounts
+                getServiceCatalog(1, 1000), // Get all services (catalog) for sale form
             ]);
 
             setSales(salesResponse.items);
@@ -253,6 +263,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             setUnits(unitsData);
             setCurrencies(currenciesData);
             setAccounts(accountsData || []);
+            setServicesCatalog(servicesCatalogResponse.items || []);
             
             // Set base currency
             const base = currenciesData.find(c => c.base);
@@ -302,6 +313,12 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     amount: item.amount,
                     purchase_item_id: item.purchase_item_id ?? null,
                     sale_type: (item.sale_type as 'retail' | 'wholesale') || 'retail',
+                })),
+                service_items: (saleData.service_items || []).map(si => ({
+                    service_id: si.service_id,
+                    name: si.name,
+                    price: si.price,
+                    quantity: si.quantity,
                 })),
             });
         } catch (error: any) {
@@ -412,6 +429,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                 paid_amount: 0,
                 additional_costs: [],
                 items: [],
+                service_items: [],
             });
             setInitialPaymentFormData({
                 amount: "",
@@ -439,6 +457,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             paid_amount: 0,
             additional_costs: [],
             items: [],
+            service_items: [],
         });
         setInitialPaymentFormData({
             amount: "",
@@ -485,6 +504,33 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             ...formData,
             items: formData.items.filter((_, i) => i !== index),
         });
+    };
+
+    const addServiceItem = () => {
+        setFormData({
+            ...formData,
+            service_items: [...formData.service_items, { service_id: 0, name: "", price: 0, quantity: 1 }],
+        });
+    };
+
+    const removeServiceItem = (index: number) => {
+        setFormData({
+            ...formData,
+            service_items: formData.service_items.filter((_, i) => i !== index),
+        });
+    };
+
+    const updateServiceItem = (index: number, field: keyof SaleServiceItemInput, value: number | string) => {
+        const newServiceItems = [...formData.service_items];
+        newServiceItems[index] = { ...newServiceItems[index], [field]: value };
+        if (field === "service_id" && typeof value === "number" && value) {
+            const catalogItem = servicesCatalog.find((s) => s.id === value);
+            if (catalogItem) {
+                newServiceItems[index].name = catalogItem.name;
+                newServiceItems[index].price = catalogItem.price;
+            }
+        }
+        setFormData({ ...formData, service_items: newServiceItems });
     };
 
     const updateItem = async (index: number, field: keyof SaleItemInput, value: any) => {
@@ -561,10 +607,13 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         return item.per_price * item.amount;
     };
 
+    const calculateServiceItemTotal = (si: SaleServiceItemInput) => si.price * si.quantity;
+
     const calculateTotal = () => {
         const itemsTotal = formData.items.reduce((sum, item) => sum + calculateItemTotal(item), 0);
+        const serviceItemsTotal = formData.service_items.reduce((sum, si) => sum + calculateServiceItemTotal(si), 0);
         const additionalCostsTotal = formData.additional_costs.reduce((sum, cost) => sum + (cost.amount || 0), 0);
-        return itemsTotal + additionalCostsTotal;
+        return itemsTotal + serviceItemsTotal + additionalCostsTotal;
     };
 
     const calculateRemaining = () => {
@@ -584,16 +633,24 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             return;
         }
 
-        if (formData.items.length === 0) {
+        if (formData.items.length === 0 && formData.service_items.length === 0) {
             toast.error(translations.errors.itemsRequired);
             return;
         }
 
-        // Validate all items
+        // Validate product items
         for (let i = 0; i < formData.items.length; i++) {
             const item = formData.items[i];
             if (!item.product_id || !item.unit_id || item.per_price <= 0 || item.amount <= 0) {
                 toast.error(`آیتم ${i + 1} ناقص است`);
+                return;
+            }
+        }
+        // Validate service items
+        for (let i = 0; i < formData.service_items.length; i++) {
+            const si = formData.service_items[i];
+            if (!si.service_id || !si.name?.trim() || si.price < 0 || si.quantity <= 0) {
+                toast.error(`خدمت ${i + 1} ناقص است`);
                 return;
             }
         }
@@ -610,7 +667,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     formData.exchange_rate ? parseFloat(formData.exchange_rate.toString()) : 1,
                     formData.paid_amount,
                     formData.additional_costs,
-                    formData.items
+                    formData.items,
+                    formData.service_items
                 );
                 toast.success(translations.success.updated);
             } else {
@@ -626,7 +684,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     formData.exchange_rate ? parseFloat(formData.exchange_rate.toString()) : 1,
                     paidAmountForCreate,
                     formData.additional_costs,
-                    formData.items
+                    formData.items,
+                    formData.service_items
                 );
                 toast.success(translations.success.created);
                 if (useInitialPaymentForm) {
@@ -1258,6 +1317,98 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                     )}
                                                 </motion.div>
                                             ))}
+                                        </div>
+
+                                        {/* Service items */}
+                                        <div className="mt-6">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                                    {translations.serviceItems}
+                                                </label>
+                                                <motion.button
+                                                    type="button"
+                                                    whileHover={{ scale: 1.05 }}
+                                                    whileTap={{ scale: 0.95 }}
+                                                    onClick={addServiceItem}
+                                                    className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors text-sm"
+                                                >
+                                                    {translations.addService}
+                                                </motion.button>
+                                            </div>
+                                            <div className="space-y-3 max-h-48 overflow-y-auto">
+                                                {formData.service_items.map((si, index) => (
+                                                    <motion.div
+                                                        key={index}
+                                                        initial={{ opacity: 0, y: -10 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        className="p-4 bg-teal-50 dark:bg-teal-900/20 rounded-xl border-2 border-teal-200 dark:border-teal-700"
+                                                    >
+                                                        <div className="grid grid-cols-12 gap-3 items-end">
+                                                            <div className="col-span-4">
+                                                                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                                    {translations.service}
+                                                                </label>
+                                                                <SearchableSelect<ServiceCatalogItem>
+                                                                    options={servicesCatalog}
+                                                                    value={si.service_id}
+                                                                    onChange={(id) => updateServiceItem(index, "service_id", id)}
+                                                                    getOptionLabel={(s) => `${s.name} - ${s.price.toLocaleString("en-US")}`}
+                                                                    getOptionValue={(s) => s.id}
+                                                                    placeholder="انتخاب خدمت"
+                                                                    searchPlaceholder="جستجوی خدمت"
+                                                                    dir="rtl"
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                                    قیمت
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.01"
+                                                                    value={si.price ?? ""}
+                                                                    onChange={(e) => updateServiceItem(index, "price", parseFloat(e.target.value) || 0)}
+                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                                    dir="ltr"
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                                    {translations.amount}
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.01"
+                                                                    min="0.01"
+                                                                    value={si.quantity ?? ""}
+                                                                    onChange={(e) => updateServiceItem(index, "quantity", parseFloat(e.target.value) || 1)}
+                                                                    className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                                    dir="ltr"
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                                    {translations.total}
+                                                                </div>
+                                                                <div className="px-3 py-2 bg-teal-100 dark:bg-teal-900/30 rounded-lg text-sm font-bold text-teal-700 dark:text-teal-300">
+                                                                    {calculateServiceItemTotal(si).toLocaleString("en-US")}
+                                                                </div>
+                                                            </div>
+                                                            <div className="col-span-2">
+                                                                <motion.button
+                                                                    type="button"
+                                                                    whileHover={{ scale: 1.1 }}
+                                                                    whileTap={{ scale: 0.9 }}
+                                                                    onClick={() => removeServiceItem(index)}
+                                                                    className="w-full px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors text-sm"
+                                                                >
+                                                                    {translations.removeItem}
+                                                                </motion.button>
+                                                            </div>
+                                                        </div>
+                                                    </motion.div>
+                                                ))}
+                                            </div>
                                         </div>
 
                                         <div className="mt-4 p-4 bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 rounded-xl space-y-3">

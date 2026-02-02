@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import moment from 'moment-jalaali';
 import { georgianToPersian, persianToGeorgian } from '../utils/date';
 
@@ -21,8 +22,10 @@ export default function PersianDatePicker({
 }: PersianDatePickerProps) {
   const [persianDate, setPersianDate] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarRect, setCalendarRect] = useState<{ top: number; left: number } | null>(null);
   const [currentMonth, setCurrentMonth] = useState(moment().jMonth() + 1);
   const [currentYear, setCurrentYear] = useState(moment().jYear());
+  const triggerRef = useRef<HTMLDivElement>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
 
   // Convert Georgian date to Persian on mount and when value changes
@@ -35,10 +38,40 @@ export default function PersianDatePicker({
     }
   }, [value]);
 
-  // Close calendar when clicking outside
+  // Position calendar when opening
+  useEffect(() => {
+    if (showCalendar && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setCalendarRect({ top: rect.bottom, left: rect.left });
+    } else {
+      setCalendarRect(null);
+    }
+  }, [showCalendar]);
+
+  // Update calendar position on scroll/resize when open
+  useEffect(() => {
+    if (!showCalendar || !triggerRef.current) return;
+    const updatePos = () => {
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect();
+        setCalendarRect({ top: rect.bottom, left: rect.left });
+      }
+    };
+    window.addEventListener('scroll', updatePos, true);
+    window.addEventListener('resize', updatePos);
+    return () => {
+      window.removeEventListener('scroll', updatePos, true);
+      window.removeEventListener('resize', updatePos);
+    };
+  }, [showCalendar]);
+
+  // Close calendar when clicking outside (trigger or calendar)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const inTrigger = triggerRef.current?.contains(target);
+      const inCalendar = calendarRef.current?.contains(target);
+      if (!inTrigger && !inCalendar) {
         setShowCalendar(false);
       }
     };

@@ -227,44 +227,26 @@ CREATE TABLE IF NOT EXISTS sale_additional_costs (
 
 CREATE TABLE IF NOT EXISTS services (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    customer_id BIGINT NOT NULL,
-    date TEXT NOT NULL,
-    notes TEXT,
+    name VARCHAR(255) NOT NULL,
+    price DOUBLE NOT NULL DEFAULT 0,
     currency_id BIGINT,
-    exchange_rate DOUBLE NOT NULL DEFAULT 1,
-    total_amount DOUBLE NOT NULL DEFAULT 0,
-    base_amount DOUBLE NOT NULL DEFAULT 0,
-    paid_amount DOUBLE NOT NULL DEFAULT 0,
+    description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (currency_id) REFERENCES currencies(id)
 );
 
-CREATE TABLE IF NOT EXISTS service_items (
+CREATE TABLE IF NOT EXISTS sale_service_items (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    sale_id BIGINT NOT NULL,
     service_id BIGINT NOT NULL,
     name TEXT NOT NULL,
     price DOUBLE NOT NULL,
     quantity DOUBLE NOT NULL DEFAULT 1,
     total DOUBLE NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS service_payments (
-    id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    service_id BIGINT NOT NULL,
-    account_id BIGINT,
-    currency_id BIGINT,
-    exchange_rate DOUBLE NOT NULL DEFAULT 1,
-    amount DOUBLE NOT NULL,
-    base_amount DOUBLE NOT NULL DEFAULT 0,
-    date TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-    FOREIGN KEY (account_id) REFERENCES accounts(id),
-    FOREIGN KEY (currency_id) REFERENCES currencies(id)
+    FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+    FOREIGN KEY (service_id) REFERENCES services(id)
 );
 
 CREATE TABLE IF NOT EXISTS expense_types (

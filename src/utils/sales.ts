@@ -36,9 +36,21 @@ export interface SaleAdditionalCost {
     created_at: string;
 }
 
+export interface SaleServiceItem {
+    id: number;
+    sale_id: number;
+    service_id: number;
+    name: string;
+    price: number;
+    quantity: number;
+    total: number;
+    created_at: string;
+}
+
 export interface SaleWithItems {
     sale: Sale;
     items: SaleItem[];
+    service_items?: SaleServiceItem[];
     additional_costs?: SaleAdditionalCost[];
 }
 
@@ -61,6 +73,13 @@ export interface SaleItemInput {
     amount: number;
     purchase_item_id?: number | null;
     sale_type?: 'retail' | 'wholesale' | null;
+}
+
+export interface SaleServiceItemInput {
+    service_id: number;
+    name: string;
+    price: number;
+    quantity: number;
 }
 
 export interface ProductBatch {
@@ -91,7 +110,7 @@ export async function initSalesTable(): Promise<string> {
 }
 
 /**
- * Create a new sale with items
+ * Create a new sale with items and optional service items
  * @param customer_id Customer ID
  * @param date Sale date
  * @param notes Optional notes
@@ -100,6 +119,7 @@ export async function initSalesTable(): Promise<string> {
  * @param paid_amount Amount paid
  * @param additional_costs Array of additional costs
  * @param items Array of sale items
+ * @param service_items Array of sale service items
  * @returns Promise with Sale
  */
 export async function createSale(
@@ -110,7 +130,8 @@ export async function createSale(
     exchange_rate: number,
     paid_amount: number,
     additional_costs: SaleAdditionalCostInput[],
-    items: SaleItemInput[]
+    items: SaleItemInput[],
+    service_items: SaleServiceItemInput[] = []
 ): Promise<Sale> {
     // Convert items to tuple format expected by Rust: (product_id, unit_id, per_price, amount, purchase_item_id, sale_type)
     const itemsTuple: [number, number, number, number, number | null, string | null][] = items.map(item => [
@@ -120,6 +141,14 @@ export async function createSale(
         item.amount,
         item.purchase_item_id ?? null,
         item.sale_type ?? null,
+    ]);
+
+    // Convert service_items to tuple format expected by Rust: (service_id, name, price, quantity)
+    const serviceItemsTuple: [number, string, number, number][] = service_items.map(si => [
+        si.service_id,
+        si.name,
+        si.price,
+        si.quantity,
     ]);
 
     // Convert additional_costs to tuple format expected by Rust: (name, amount)
@@ -137,6 +166,7 @@ export async function createSale(
         paidAmount: paid_amount,
         additionalCosts: additionalCostsTuple,
         items: itemsTuple,
+        service_items: serviceItemsTuple,
     });
 }
 
@@ -197,6 +227,7 @@ export async function getSale(id: number): Promise<SaleWithItems> {
  * @param paid_amount Amount paid
  * @param additional_costs Array of additional costs
  * @param items Array of sale items
+ * @param service_items Array of sale service items
  * @returns Promise with Sale
  */
 export async function updateSale(
@@ -208,7 +239,8 @@ export async function updateSale(
     exchange_rate: number,
     paid_amount: number,
     additional_costs: SaleAdditionalCostInput[],
-    items: SaleItemInput[]
+    items: SaleItemInput[],
+    service_items: SaleServiceItemInput[] = []
 ): Promise<Sale> {
     // Convert items to tuple format expected by Rust: (product_id, unit_id, per_price, amount, purchase_item_id, sale_type)
     const itemsTuple: [number, number, number, number, number | null, string | null][] = items.map(item => [
@@ -218,6 +250,14 @@ export async function updateSale(
         item.amount,
         item.purchase_item_id ?? null,
         item.sale_type ?? null,
+    ]);
+
+    // Convert service_items to tuple format expected by Rust: (service_id, name, price, quantity)
+    const serviceItemsTuple: [number, string, number, number][] = service_items.map(si => [
+        si.service_id,
+        si.name,
+        si.price,
+        si.quantity,
     ]);
 
     // Convert additional_costs to tuple format expected by Rust: (name, amount)
@@ -236,6 +276,7 @@ export async function updateSale(
         paidAmount: paid_amount,
         additionalCosts: additionalCostsTuple,
         items: itemsTuple,
+        service_items: serviceItemsTuple,
     });
 }
 

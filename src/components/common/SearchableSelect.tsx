@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, Search } from "lucide-react";
 
@@ -36,7 +37,9 @@ export default function SearchableSelect<T>({
 }: SearchableSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dropdownRect, setDropdownRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((o) => getOptionValue(o) === value);
   const displayLabel = selectedOption ? getOptionLabel(selectedOption) : placeholder;
@@ -49,14 +52,51 @@ export default function SearchableSelect<T>({
   });
 
   useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      setDropdownRect({
+        top: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+      });
+    } else {
+      setDropdownRect(null);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const inContainer = containerRef.current?.contains(target);
+      const inDropdown = dropdownRef.current?.contains(target);
+      if (!inContainer && !inDropdown) {
         setIsOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Update dropdown position on scroll/resize when open
+  useEffect(() => {
+    if (!isOpen || !containerRef.current) return;
+    const updatePos = () => {
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setDropdownRect({
+          top: rect.bottom,
+          left: rect.left,
+          width: rect.width,
+        });
+      }
+    };
+    window.addEventListener("scroll", updatePos, true);
+    window.addEventListener("resize", updatePos);
+    return () => {
+      window.removeEventListener("scroll", updatePos, true);
+      window.removeEventListener("resize", updatePos);
+    };
+  }, [isOpen]);
 
   const handleSelect = (opt: T) => {
     onChange(getOptionValue(opt));
@@ -79,14 +119,20 @@ export default function SearchableSelect<T>({
         />
       </button>
 
-      <AnimatePresence>
-        {isOpen && (
+      {isOpen && dropdownRect && createPortal(
+        <AnimatePresence>
           <motion.div
+            ref={dropdownRef}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-50 w-full mt-1 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl max-h-64 flex flex-col"
+            className="fixed z-[9999] py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl max-h-64 flex flex-col"
+            style={{
+              top: dropdownRect.top,
+              left: dropdownRect.left,
+              width: dropdownRect.width,
+            }}
           >
             <div className="p-2 border-b border-gray-200 dark:border-gray-600 sticky top-0 bg-white dark:bg-gray-800">
               <div className="relative">
@@ -134,8 +180,9 @@ export default function SearchableSelect<T>({
               )}
             </div>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }
