@@ -160,8 +160,14 @@ export default function PersianDatePicker({
       'حوت'       // اسفند
     ];
 
+    if (!calendarRect) return null;
+
     return (
-      <div className="absolute z-50 mt-2 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-xl shadow-xl p-4 min-w-[300px]">
+      <div
+        ref={calendarRef}
+        className="fixed z-[9999] bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-600 rounded-xl shadow-xl p-4 min-w-[300px]"
+        style={{ top: calendarRect.top, left: calendarRect.left }}
+      >
         {/* Calendar Header */}
         <div className="flex items-center justify-between mb-4">
           <button
@@ -259,7 +265,7 @@ export default function PersianDatePicker({
   };
 
   return (
-    <div className={`relative ${className}`} ref={calendarRef}>
+    <div className={`relative ${className}`} ref={triggerRef}>
       <div className="relative">
         <input
           type="text"
@@ -283,7 +289,7 @@ export default function PersianDatePicker({
           </svg>
         </button>
       </div>
-      {showCalendar && renderCalendar()}
+      {showCalendar && calendarRect && createPortal(renderCalendar(), document.body)}
     </div>
   );
 }
