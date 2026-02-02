@@ -2547,36 +2547,12 @@ pub struct PurchasePayment {
     pub created_at: String,
 }
 
-/// Initialize purchase payments table schema
+/// Initialize purchase payments table (schema from db.sql on first open).
 #[tauri::command]
 fn init_purchase_payments_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS purchase_payments (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            purchase_id INTEGER NOT NULL,
-            account_id INTEGER,
-            amount DOUBLE NOT NULL,
-            currency TEXT NOT NULL,
-            rate DOUBLE NOT NULL,
-            total DOUBLE NOT NULL,
-            date TEXT NOT NULL,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
-            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create purchase_payments table: {}", e))?;
-
-    // Add account_id column if it doesn't exist (for existing databases)
-    let _ = db.execute("ALTER TABLE purchase_payments ADD COLUMN account_id INTEGER", ());
-
-    Ok("Purchase payments table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a purchase payment
@@ -2940,125 +2916,12 @@ pub struct SaleAdditionalCost {
     pub created_at: String,
 }
 
-/// Initialize sales table schema
+/// Initialize sales table (schema from db.sql on first open).
 #[tauri::command]
 fn init_sales_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS sales (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            customer_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            notes TEXT,
-            currency_id INTEGER,
-            exchange_rate DOUBLE NOT NULL DEFAULT 1,
-            total_amount DOUBLE NOT NULL DEFAULT 0,
-            base_amount DOUBLE NOT NULL DEFAULT 0,
-            paid_amount DOUBLE NOT NULL DEFAULT 0,
-            additional_cost DOUBLE NOT NULL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_id) REFERENCES customers(id),
-            FOREIGN KEY (currency_id) REFERENCES currencies(id)
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create sales table: {}", e))?;
-
-    // Add new columns if they don't exist (for existing databases)
-    let alter_queries = vec![
-        "ALTER TABLE sales ADD COLUMN additional_cost DOUBLE NOT NULL DEFAULT 0",
-        "ALTER TABLE sales ADD COLUMN currency_id INTEGER",
-        "ALTER TABLE sales ADD COLUMN exchange_rate DOUBLE NOT NULL DEFAULT 1",
-        "ALTER TABLE sales ADD COLUMN base_amount DOUBLE NOT NULL DEFAULT 0",
-    ];
-
-    for alter_sql in alter_queries {
-        let _ = db.execute(alter_sql, ());
-    }
-
-    let create_items_table_sql = "
-        CREATE TABLE IF NOT EXISTS sale_items (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            sale_id INTEGER NOT NULL,
-            product_id INTEGER NOT NULL,
-            unit_id INTEGER NOT NULL,
-            per_price DOUBLE NOT NULL,
-            amount DOUBLE NOT NULL,
-            total DOUBLE NOT NULL,
-            purchase_item_id INTEGER,
-            sale_type TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
-            FOREIGN KEY (product_id) REFERENCES products(id),
-            FOREIGN KEY (unit_id) REFERENCES units(id),
-            FOREIGN KEY (purchase_item_id) REFERENCES purchase_items(id)
-        )
-    ";
-
-    db.execute(create_items_table_sql, ())
-        .map_err(|e| format!("Failed to create sale_items table: {}", e))?;
-
-    // Add new columns if they don't exist (for existing databases)
-    let alter_sale_items_queries = vec![
-        "ALTER TABLE sale_items ADD COLUMN purchase_item_id INTEGER",
-        "ALTER TABLE sale_items ADD COLUMN sale_type TEXT",
-    ];
-
-    for alter_sql in alter_sale_items_queries {
-        let _ = db.execute(alter_sql, ());
-    }
-
-    let create_payments_table_sql = "
-        CREATE TABLE IF NOT EXISTS sale_payments (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            sale_id INTEGER NOT NULL,
-            account_id INTEGER,
-            currency_id INTEGER,
-            exchange_rate DOUBLE NOT NULL DEFAULT 1,
-            amount DOUBLE NOT NULL,
-            base_amount DOUBLE NOT NULL DEFAULT 0,
-            date TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
-            FOREIGN KEY (account_id) REFERENCES accounts(id),
-            FOREIGN KEY (currency_id) REFERENCES currencies(id)
-        )
-    ";
-
-    db.execute(create_payments_table_sql, ())
-        .map_err(|e| format!("Failed to create sale_payments table: {}", e))?;
-
-    // Add new columns if they don't exist (for existing databases)
-    let alter_payment_queries = vec![
-        "ALTER TABLE sale_payments ADD COLUMN account_id INTEGER",
-        "ALTER TABLE sale_payments ADD COLUMN currency_id INTEGER",
-        "ALTER TABLE sale_payments ADD COLUMN exchange_rate DOUBLE NOT NULL DEFAULT 1",
-        "ALTER TABLE sale_payments ADD COLUMN base_amount DOUBLE NOT NULL DEFAULT 0",
-    ];
-
-    for alter_sql in alter_payment_queries {
-        let _ = db.execute(alter_sql, ());
-    }
-
-    let create_additional_costs_table_sql = "
-        CREATE TABLE IF NOT EXISTS sale_additional_costs (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            sale_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            amount DOUBLE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
-        )
-    ";
-
-    db.execute(create_additional_costs_table_sql, ())
-        .map_err(|e| format!("Failed to create sale_additional_costs table: {}", e))?;
-
-    Ok("Sales, sale_items, sale_payments, and sale_additional_costs tables initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new sale with items
@@ -3973,70 +3836,12 @@ pub struct ServicePayment {
     pub created_at: String,
 }
 
-/// Initialize services table schema
+/// Initialize services table (schema from db.sql on first open).
 #[tauri::command]
 fn init_services_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS services (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            customer_id INTEGER NOT NULL,
-            date TEXT NOT NULL,
-            notes TEXT,
-            currency_id INTEGER,
-            exchange_rate DOUBLE NOT NULL DEFAULT 1,
-            total_amount DOUBLE NOT NULL DEFAULT 0,
-            base_amount DOUBLE NOT NULL DEFAULT 0,
-            paid_amount DOUBLE NOT NULL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_id) REFERENCES customers(id),
-            FOREIGN KEY (currency_id) REFERENCES currencies(id)
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create services table: {}", e))?;
-
-    let create_items_table_sql = "
-        CREATE TABLE IF NOT EXISTS service_items (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            service_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            price DOUBLE NOT NULL,
-            quantity DOUBLE NOT NULL DEFAULT 1,
-            total DOUBLE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
-        )
-    ";
-
-    db.execute(create_items_table_sql, ())
-        .map_err(|e| format!("Failed to create service_items table: {}", e))?;
-
-    let create_payments_table_sql = "
-        CREATE TABLE IF NOT EXISTS service_payments (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            service_id INTEGER NOT NULL,
-            account_id INTEGER,
-            currency_id INTEGER,
-            exchange_rate DOUBLE NOT NULL DEFAULT 1,
-            amount DOUBLE NOT NULL,
-            base_amount DOUBLE NOT NULL DEFAULT 0,
-            date TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-            FOREIGN KEY (account_id) REFERENCES accounts(id),
-            FOREIGN KEY (currency_id) REFERENCES currencies(id)
-        )
-    ";
-
-    db.execute(create_payments_table_sql, ())
-        .map_err(|e| format!("Failed to create service_payments table: {}", e))?;
-
-    Ok("Services, service_items, and service_payments tables initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new service with items
@@ -4639,25 +4444,12 @@ pub struct ExpenseType {
     pub updated_at: String,
 }
 
-/// Initialize expense_types table schema
+/// Initialize expense_types table (schema from db.sql on first open).
 #[tauri::command]
 fn init_expense_types_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS expense_types (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create expense_types table: {}", e))?;
-
-    Ok("Expense types table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new expense type
@@ -4782,75 +4574,12 @@ pub struct Expense {
     pub updated_at: String,
 }
 
-/// Initialize expenses table schema
+/// Initialize expenses table (schema from db.sql on first open).
 #[tauri::command]
 fn init_expenses_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    // First ensure expense_types table exists
-    let create_expense_types_sql = "
-        CREATE TABLE IF NOT EXISTS expense_types (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ";
-    db.execute(create_expense_types_sql, ())
-        .map_err(|e| format!("Failed to create expense_types table: {}", e))?;
-
-    // Create expenses table with expense_type_id
-    // If table already exists with old schema, we'll handle migration
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS expenses (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            expense_type_id INTEGER NOT NULL,
-            amount DOUBLE NOT NULL,
-            currency TEXT NOT NULL,
-            rate DOUBLE NOT NULL DEFAULT 1.0,
-            total DOUBLE NOT NULL,
-            date TEXT NOT NULL,
-            bill_no TEXT,
-            description TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (expense_type_id) REFERENCES expense_types(id)
-        )
-    ";
-    
-    // Try to create the table (will fail silently if it exists)
-    let _ = db.execute(create_table_sql, ());
-    
-    // Check if columns exist, if not, try to add them
-    let check_column_sql = "PRAGMA table_info(expenses)";
-    if let Ok(columns) = db.query(check_column_sql, (), |row| {
-        Ok(row_get::<String>(row, 1)?)
-    }) {
-        let has_expense_type_id = columns.iter().any(|c| c == "expense_type_id");
-        let has_bill_no = columns.iter().any(|c| c == "bill_no");
-        let has_description = columns.iter().any(|c| c == "description");
-        let has_name = columns.iter().any(|c| c == "name");
-        
-        if !has_expense_type_id && has_name {
-            // Old schema detected - add expense_type_id column
-            // So we'll add it as nullable first, then the app should handle migration
-            let add_column_sql = "ALTER TABLE expenses ADD COLUMN expense_type_id INTEGER";
-            let _ = db.execute(add_column_sql, ());
-        }
-        
-        if !has_bill_no {
-            let add_column_sql = "ALTER TABLE expenses ADD COLUMN bill_no TEXT";
-            let _ = db.execute(add_column_sql, ());
-        }
-        
-        if !has_description {
-            let add_column_sql = "ALTER TABLE expenses ADD COLUMN description TEXT";
-            let _ = db.execute(add_column_sql, ());
-        }
-    }
-
-    Ok("Expenses table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new expense
@@ -5116,33 +4845,12 @@ pub struct Employee {
     pub updated_at: String,
 }
 
-/// Initialize employees table schema
+/// Initialize employees table (schema from db.sql on first open).
 #[tauri::command]
 fn init_employees_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS employees (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            full_name TEXT NOT NULL,
-            phone TEXT NOT NULL,
-            email TEXT,
-            address TEXT NOT NULL,
-            position TEXT,
-            hire_date TEXT,
-            base_salary REAL,
-            photo_path TEXT,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create employees table: {}", e))?;
-
-    Ok("Employees table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new employee
@@ -5434,48 +5142,12 @@ pub struct Salary {
     pub updated_at: String,
 }
 
-/// Initialize salaries table schema
+/// Initialize salaries table (schema from db.sql on first open).
 #[tauri::command]
 fn init_salaries_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    // Create table if it doesn't exist
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS salaries (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            employee_id INTEGER NOT NULL,
-            year INTEGER NOT NULL,
-            month TEXT NOT NULL,
-            amount DOUBLE NOT NULL,
-            deductions DOUBLE NOT NULL DEFAULT 0,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
-            UNIQUE(employee_id, year, month)
-        )
-    ";
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create salaries table: {}", e))?;
-
-    // Check if deductions column exists, if not add it
-    let check_column_sql = "PRAGMA table_info(salaries)";
-    if let Ok(columns) = db.query(check_column_sql, (), |row| {
-        Ok(row_get::<String>(row, 1)?)
-    }) {
-        let has_deductions = columns.iter().any(|c| c == "deductions");
-        if !has_deductions {
-            // Add deductions column
-            let add_column_sql = "ALTER TABLE salaries ADD COLUMN deductions DOUBLE NOT NULL DEFAULT 0";
-            let _ = db.execute(add_column_sql, ());
-        }
-    }
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create salaries table: {}", e))?;
-
-    Ok("Salaries table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new salary
@@ -5761,52 +5433,12 @@ pub struct Deduction {
     pub updated_at: String,
 }
 
-/// Initialize deductions table schema
+/// Initialize deductions table (schema from db.sql on first open).
 #[tauri::command]
 fn init_deductions_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    // Create table if it doesn't exist
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS deductions (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            employee_id INTEGER NOT NULL,
-            year INTEGER NOT NULL DEFAULT 1403,
-            month TEXT NOT NULL DEFAULT 'حمل',
-            currency TEXT NOT NULL,
-            rate DOUBLE NOT NULL DEFAULT 1.0,
-            amount DOUBLE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create deductions table: {}", e))?;
-
-    // Check if year column exists, if not add it
-    let check_column_sql = "PRAGMA table_info(deductions)";
-    if let Ok(columns) = db.query(check_column_sql, (), |row| {
-        Ok(row_get::<String>(row, 1)?)
-    }) {
-        let has_year = columns.iter().any(|c| c == "year");
-        if !has_year {
-            // Add year column
-            let add_year_sql = "ALTER TABLE deductions ADD COLUMN year INTEGER NOT NULL DEFAULT 1403";
-            let _ = db.execute(add_year_sql, ());
-        }
-        
-        let has_month = columns.iter().any(|c| c == "month");
-        if !has_month {
-            // Add month column
-            let add_month_sql = "ALTER TABLE deductions ADD COLUMN month TEXT NOT NULL DEFAULT 'حمل'";
-            let _ = db.execute(add_month_sql, ());
-        }
-    }
-
-    Ok("Deductions table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new deduction
@@ -6123,61 +5755,12 @@ pub struct CompanySettings {
     pub updated_at: String,
 }
 
-/// Initialize company_settings table schema
+/// Initialize company_settings table (schema from db.sql on first open).
 #[tauri::command]
 fn init_company_settings_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    // First, check if font column exists, if not add it
-    let check_column_sql = "PRAGMA table_info(company_settings)";
-    let columns = db.query(check_column_sql, (), |row| {
-        Ok(row_get::<String>(row, 1)?)
-    }).unwrap_or_else(|_| vec![]);
-    
-    let has_font_column = columns.iter().any(|col| col == "font");
-    
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS company_settings (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            name TEXT NOT NULL,
-            logo TEXT,
-            phone TEXT,
-            address TEXT,
-            font TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create company_settings table: {}", e))?;
-
-    // Add font column if it doesn't exist (for existing databases)
-    if !has_font_column {
-        db.execute("ALTER TABLE company_settings ADD COLUMN font TEXT", ())
-            .map_err(|e| format!("Failed to add font column: {}", e))?;
-    }
-
-    // Insert default row if table is empty
-    let count_sql = "SELECT COUNT(*) FROM company_settings";
-    let counts = db.query(count_sql, (), |row| Ok(row_get::<i64>(row, 0)?))
-        .unwrap_or_else(|_| vec![]);
-    let count: i64 = counts.first().copied().unwrap_or(0);
-    
-    if count == 0 {
-        let insert_sql = "INSERT INTO company_settings (name, logo, phone, address, font) VALUES (?, ?, ?, ?, ?)";
-        db.execute(insert_sql, (
-            &"شرکت",
-            &None::<String>,
-            &None::<String>,
-            &None::<String>,
-            &None::<String>,
-        ))
-        .map_err(|e| format!("Failed to insert default company settings: {}", e))?;
-    }
-
-    Ok("Company settings table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Get company settings (only one row should exist)
@@ -6332,135 +5915,44 @@ pub struct CurrencyExchangeRate {
     pub created_at: String,
 }
 
-/// Initialize COA categories table schema
+/// Initialize COA categories table (schema from db.sql on first open).
 #[tauri::command]
 fn init_coa_categories_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS coa_categories (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            parent_id INTEGER,
-            name TEXT NOT NULL,
-            code TEXT NOT NULL UNIQUE,
-            category_type TEXT NOT NULL,
-            level INTEGER NOT NULL DEFAULT 0,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_id) REFERENCES coa_categories(id) ON DELETE SET NULL
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create coa_categories table: {}", e))?;
-
-    Ok("COA categories table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
-/// Initialize account currency balances table schema
+/// Initialize account currency balances table (schema from db.sql on first open).
 #[tauri::command]
 fn init_account_currency_balances_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS account_currency_balances (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            account_id INTEGER NOT NULL,
-            currency_id INTEGER NOT NULL,
-            balance DOUBLE NOT NULL DEFAULT 0,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
-            FOREIGN KEY (currency_id) REFERENCES currencies(id),
-            UNIQUE(account_id, currency_id)
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create account_currency_balances table: {}", e))?;
-
-    Ok("Account currency balances table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
-/// Initialize journal entries table schema
+/// Initialize journal entries table (schema from db.sql on first open).
 #[tauri::command]
 fn init_journal_entries_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS journal_entries (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            entry_number TEXT NOT NULL UNIQUE,
-            entry_date TEXT NOT NULL,
-            description TEXT,
-            reference_type TEXT,
-            reference_id INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create journal_entries table: {}", e))?;
-
-    Ok("Journal entries table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
-/// Initialize journal entry lines table schema
+/// Initialize journal entry lines table (schema from db.sql on first open).
 #[tauri::command]
 fn init_journal_entry_lines_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS journal_entry_lines (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            journal_entry_id INTEGER NOT NULL,
-            account_id INTEGER NOT NULL,
-            currency_id INTEGER NOT NULL,
-            debit_amount DOUBLE NOT NULL DEFAULT 0,
-            credit_amount DOUBLE NOT NULL DEFAULT 0,
-            exchange_rate DOUBLE NOT NULL DEFAULT 1,
-            base_amount DOUBLE NOT NULL DEFAULT 0,
-            description TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (journal_entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
-            FOREIGN KEY (account_id) REFERENCES accounts(id),
-            FOREIGN KEY (currency_id) REFERENCES currencies(id)
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create journal_entry_lines table: {}", e))?;
-
-    Ok("Journal entry lines table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
-/// Initialize currency exchange rates table schema
+/// Initialize currency exchange rates table (schema from db.sql on first open).
 #[tauri::command]
 fn init_currency_exchange_rates_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS currency_exchange_rates (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            from_currency_id INTEGER NOT NULL,
-            to_currency_id INTEGER NOT NULL,
-            rate DOUBLE NOT NULL,
-            date TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (from_currency_id) REFERENCES currencies(id),
-            FOREIGN KEY (to_currency_id) REFERENCES currencies(id)
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create currency_exchange_rates table: {}", e))?;
-
-    Ok("Currency exchange rates table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new COA category
@@ -6831,77 +6323,20 @@ pub struct AccountTransaction {
     pub updated_at: String,
 }
 
-/// Initialize accounts table schema
+/// Initialize accounts table (schema from db.sql on first open).
 #[tauri::command]
 fn init_accounts_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS accounts (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            name TEXT NOT NULL,
-            currency_id INTEGER,
-            coa_category_id INTEGER,
-            account_code TEXT UNIQUE,
-            account_type TEXT,
-            initial_balance DOUBLE NOT NULL DEFAULT 0,
-            current_balance DOUBLE NOT NULL DEFAULT 0,
-            is_active INTEGER NOT NULL DEFAULT 1,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (currency_id) REFERENCES currencies(id),
-            FOREIGN KEY (coa_category_id) REFERENCES coa_categories(id)
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create accounts table: {}", e))?;
-
-    // Add new columns if they don't exist (for existing databases)
-    let alter_queries = vec![
-        "ALTER TABLE accounts ADD COLUMN coa_category_id INTEGER",
-        "ALTER TABLE accounts ADD COLUMN account_code TEXT UNIQUE",
-        "ALTER TABLE accounts ADD COLUMN account_type TEXT",
-        "ALTER TABLE accounts ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
-    ];
-
-    for alter_sql in alter_queries {
-        let _ = db.execute(alter_sql, ());
-    }
-
-    Ok("Accounts table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
-/// Initialize account transactions table schema
+/// Initialize account transactions table (schema from db.sql on first open).
 #[tauri::command]
 fn init_account_transactions_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let db = db_guard.as_ref().ok_or("No database is currently open")?;
-
-    let create_table_sql = "
-        CREATE TABLE IF NOT EXISTS account_transactions (
-            id BIGINT PRIMARY KEY AUTO_INCREMENT,
-            account_id INTEGER NOT NULL,
-            transaction_type TEXT NOT NULL,
-            amount DOUBLE NOT NULL,
-            currency TEXT NOT NULL,
-            rate DOUBLE NOT NULL,
-            total DOUBLE NOT NULL,
-            transaction_date TEXT NOT NULL,
-            is_full INTEGER NOT NULL DEFAULT 0,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
-        )
-    ";
-
-    db.execute(create_table_sql, ())
-        .map_err(|e| format!("Failed to create account_transactions table: {}", e))?;
-
-    Ok("Account transactions table initialized successfully".to_string())
+    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    Ok("OK".to_string())
 }
 
 /// Create a new account
