@@ -16,7 +16,7 @@ import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import PageHeader from "./common/PageHeader";
 import Table from "./common/Table";
-import { Edit2, Trash2, Power, Mail, Phone } from "lucide-react";
+import { Edit2, Trash2, Power, Mail, Phone, User as UserIcon } from "lucide-react";
 
 // Dari translations
 const translations = {
@@ -81,6 +81,9 @@ const translations = {
         phone: "شماره تماس را وارد کنید (اختیاری)",
         search: "جستجوی کاربران...",
     },
+    profilePicture: "تصویر پروفایل",
+    selectProfilePicture: "انتخاب تصویر",
+    removeProfilePicture: "حذف تصویر",
 };
 
 interface UserManagementProps {
@@ -115,7 +118,9 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
         phone: "",
         role: "user",
         is_active: true,
+        profile_picture: null,
     });
+    const [profilePreview, setProfilePreview] = useState<string | null>(null);
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
     useEffect(() => {
@@ -170,7 +175,9 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                 phone: user.phone || "",
                 role: user.role || "user",
                 is_active: user.is_active,
+                profile_picture: user.profile_picture ?? null,
             });
+            setProfilePreview(user.profile_picture ?? null);
         } else {
             setEditingUser(null);
             setFormData({
@@ -182,7 +189,9 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                 phone: "",
                 role: "user",
                 is_active: true,
+                profile_picture: null,
             });
+            setProfilePreview(null);
         }
         setIsModalOpen(true);
     };
@@ -199,7 +208,35 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
             phone: "",
             role: "user",
             is_active: true,
+            profile_picture: null,
         });
+        setProfilePreview(null);
+    };
+
+    const handleSelectProfilePicture = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (!file.type.startsWith("image/")) {
+                toast.error("لطفاً یک فایل تصویری انتخاب کنید");
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                toast.error("حجم فایل نباید بیشتر از 5 مگابایت باشد");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const result = reader.result as string;
+                setProfilePreview(result);
+                setFormData((prev) => ({ ...prev, profile_picture: result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleRemoveProfilePicture = () => {
+        setProfilePreview(null);
+        setFormData((prev) => ({ ...prev, profile_picture: null }));
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -244,6 +281,7 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                     phone: formData.phone,
                     role: formData.role,
                     is_active: formData.is_active,
+                    profile_picture: formData.profile_picture ?? undefined,
                 });
                 toast.success(translations.success.updated);
             } else {
@@ -255,6 +293,7 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                     phone: formData.phone,
                     role: formData.role,
                     is_active: formData.is_active,
+                    profile_picture: formData.profile_picture ?? undefined,
                 });
                 toast.success(translations.success.created);
             }
@@ -396,9 +435,17 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                             sortable: true,
                             render: (user) => (
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-10 h-10 bg-gradient-to-br ${user.is_active ? 'from-purple-500 to-blue-500' : 'from-gray-400 to-gray-500'} rounded-lg flex items-center justify-center text-white font-bold shadow-sm`}>
-                                        {user.username.charAt(0).toUpperCase()}
-                                    </div>
+                                    {user.profile_picture ? (
+                                        <img
+                                            src={user.profile_picture}
+                                            alt={user.username}
+                                            className="w-10 h-10 rounded-lg object-cover shadow-sm border border-gray-200 dark:border-gray-600"
+                                        />
+                                    ) : (
+                                        <div className={`w-10 h-10 bg-gradient-to-br ${user.is_active ? 'from-purple-500 to-blue-500' : 'from-gray-400 to-gray-500'} rounded-lg flex items-center justify-center text-white font-bold shadow-sm`}>
+                                            {user.username.charAt(0).toUpperCase()}
+                                        </div>
+                                    )}
                                     <div>
                                         <div className="font-bold text-gray-900 dark:text-white">
                                             {user.full_name || user.username}
@@ -530,15 +577,22 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                                 className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
                             >
                                 <div className="flex items-center gap-4 mb-6">
-                                    <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex items-center justify-center shadow-lg">
-                                        <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            {editingUser ? (
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                            ) : (
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                                            )}
-                                        </svg>
-                                    </div>
+                                    {profilePreview ? (
+                                        <div className="relative">
+                                            <img src={profilePreview} alt="پروفایل" className="w-14 h-14 rounded-xl object-cover shadow-lg border-2 border-purple-200 dark:border-purple-700" />
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveProfilePicture}
+                                                className="absolute -top-1 -left-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs shadow"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="w-14 h-14 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex items-center justify-center shadow-lg">
+                                            <UserIcon className="w-7 h-7 text-white" />
+                                        </div>
+                                    )}
                                     <div>
                                         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                                             {editingUser ? translations.edit : translations.addNew}
@@ -550,6 +604,38 @@ export default function UserManagement({ onBack, currentUser }: UserManagementPr
                                 </div>
 
                                 <form onSubmit={handleSubmit} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            {translations.profilePicture}
+                                        </label>
+                                        <div className="flex items-center gap-4">
+                                            {profilePreview ? (
+                                                <div className="relative inline-block">
+                                                    <img src={profilePreview} alt="پروفایل" className="w-20 h-20 rounded-xl object-cover border-2 border-gray-200 dark:border-gray-600" />
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleRemoveProfilePicture}
+                                                        className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <label className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center cursor-pointer hover:border-purple-500 dark:hover:border-purple-400 transition-colors bg-gray-50 dark:bg-gray-700/50">
+                                                    <UserIcon className="w-8 h-8 text-gray-400" />
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        className="hidden"
+                                                        onChange={handleSelectProfilePicture}
+                                                    />
+                                                </label>
+                                            )}
+                                            {!profilePreview && (
+                                                <span className="text-sm text-gray-500 dark:text-gray-400">{translations.selectProfilePicture}</span>
+                                            )}
+                                        </div>
+                                    </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">

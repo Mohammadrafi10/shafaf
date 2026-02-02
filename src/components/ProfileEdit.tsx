@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 import { getUserById, updateUserProfile, type User } from "../utils/user";
 import Footer from "./Footer";
+import { User as UserIcon } from "lucide-react";
 
 // Dari translations
 const translations = {
@@ -51,6 +52,9 @@ const translations = {
         newPassword: "رمز عبور جدید را وارد کنید",
         confirmPassword: "رمز عبور جدید را تأیید کنید",
     },
+    profilePicture: "تصویر پروفایل",
+    selectProfilePicture: "انتخاب تصویر",
+    removeProfilePicture: "حذف تصویر",
 };
 
 interface ProfileEditProps {
@@ -69,7 +73,9 @@ export default function ProfileEdit({ userId, onBack, onProfileUpdate }: Profile
         email: "",
         full_name: "",
         phone: "",
+        profile_picture: null as string | null,
     });
+    const [profilePreview, setProfilePreview] = useState<string | null>(null);
     const [passwordData, setPasswordData] = useState({
         currentPassword: "",
         newPassword: "",
@@ -91,7 +97,9 @@ export default function ProfileEdit({ userId, onBack, onProfileUpdate }: Profile
                     email: userData.email,
                     full_name: userData.full_name || "",
                     phone: userData.phone || "",
+                    profile_picture: userData.profile_picture ?? null,
                 });
+                setProfilePreview(userData.profile_picture ?? null);
             }
         } catch (error: any) {
             toast.error(translations.errors.fetch);
@@ -238,11 +246,19 @@ export default function ProfileEdit({ userId, onBack, onProfileUpdate }: Profile
                     <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
                         <motion.div
                             whileHover={{ scale: 1.05, rotate: 5 }}
-                            className="w-28 h-28 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center shadow-lg border-2 border-white/30"
+                            className="w-28 h-28 rounded-2xl flex items-center justify-center shadow-lg border-2 border-white/30 overflow-hidden bg-white/20 backdrop-blur-sm"
                         >
-                            <span className="text-white font-bold text-5xl">
-                                {user.username.charAt(0).toUpperCase()}
-                            </span>
+                            {(profilePreview ?? user.profile_picture) ? (
+                                <img
+                                    src={profilePreview ?? user.profile_picture ?? ""}
+                                    alt={user.username}
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <span className="text-white font-bold text-5xl">
+                                    {user.username.charAt(0).toUpperCase()}
+                                </span>
+                            )}
                         </motion.div>
                         <div className="text-center md:text-right">
                             <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">
@@ -281,6 +297,61 @@ export default function ProfileEdit({ userId, onBack, onProfileUpdate }: Profile
                             <div>
                                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">{translations.personalInfo}</h2>
                                 <p className="text-gray-600 dark:text-gray-400 text-sm">اطلاعات پایه خود را تنظیم کنید</p>
+                            </div>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                {translations.profilePicture}
+                            </label>
+                            <div className="flex items-center gap-4">
+                                {profilePreview ? (
+                                    <div className="relative inline-block">
+                                        <img src={profilePreview} alt="پروفایل" className="w-20 h-20 rounded-xl object-cover border-2 border-gray-200 dark:border-gray-600 shadow" />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setProfilePreview(null);
+                                                setFormData((prev) => ({ ...prev, profile_picture: null }));
+                                            }}
+                                            className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <label className="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center cursor-pointer hover:border-purple-500 dark:hover:border-purple-400 transition-colors bg-gray-50 dark:bg-gray-700/50">
+                                        <UserIcon className="w-8 h-8 text-gray-400" />
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    if (!file.type.startsWith("image/")) {
+                                                        toast.error("لطفاً یک فایل تصویری انتخاب کنید");
+                                                        return;
+                                                    }
+                                                    if (file.size > 5 * 1024 * 1024) {
+                                                        toast.error("حجم فایل نباید بیشتر از 5 مگابایت باشد");
+                                                        return;
+                                                    }
+                                                    const reader = new FileReader();
+                                                    reader.onloadend = () => {
+                                                        const result = reader.result as string;
+                                                        setProfilePreview(result);
+                                                        setFormData((prev) => ({ ...prev, profile_picture: result }));
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+                                )}
+                                {!profilePreview && (
+                                    <span className="text-sm text-gray-500 dark:text-gray-400">{translations.selectProfilePicture}</span>
+                                )}
                             </div>
                         </div>
 

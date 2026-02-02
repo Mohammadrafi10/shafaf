@@ -9,6 +9,7 @@ export interface User {
     phone?: string;
     role: string;
     is_active: boolean;
+    profile_picture?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -21,6 +22,7 @@ export interface UserFormData {
     phone?: string;
     role: string;
     is_active: boolean;
+    profile_picture?: string | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -89,6 +91,12 @@ export async function initExtendedUsersTable(): Promise<string> {
         // Column might already exist
     }
 
+    try {
+        await executeQuery("ALTER TABLE users ADD COLUMN profile_picture TEXT");
+    } catch (e) {
+        // Column might already exist
+    }
+
     return "Users table initialized with extended fields";
 }
 
@@ -132,7 +140,7 @@ export async function getUsers(
  */
 export async function getUserById(id: number): Promise<User | null> {
     const result = await queryDatabase(
-        "SELECT id, username, email, full_name, phone, role, is_active, created_at, updated_at FROM users WHERE id = ?",
+        "SELECT id, username, email, full_name, phone, role, is_active, profile_picture, created_at, updated_at FROM users WHERE id = ?",
         [id]
     );
     const users = resultToObjects(result);
@@ -153,8 +161,8 @@ export async function createUser(userData: UserFormData): Promise<string> {
     const hashedPassword = await invoke<string>("hash_password", { password: userData.password });
 
     await executeQuery(
-        `INSERT INTO users (username, email, password_hash, full_name, phone, role, is_active, updated_at) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+        `INSERT INTO users (username, email, password_hash, full_name, phone, role, is_active, profile_picture, updated_at) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
         [
             userData.username,
             userData.email,
@@ -163,6 +171,7 @@ export async function createUser(userData: UserFormData): Promise<string> {
             userData.phone || null,
             userData.role || "user",
             userData.is_active ? 1 : 0,
+            userData.profile_picture || null,
         ]
     );
     return "User created successfully";
@@ -207,6 +216,10 @@ export async function updateUser(id: number, userData: Partial<UserFormData>): P
         updates.push("is_active = ?");
         params.push(userData.is_active ? 1 : 0);
     }
+    if (userData.profile_picture !== undefined) {
+        updates.push("profile_picture = ?");
+        params.push(userData.profile_picture || null);
+    }
 
     updates.push("updated_at = CURRENT_TIMESTAMP");
     params.push(id);
@@ -231,6 +244,7 @@ export async function updateUserProfile(
         email?: string;
         full_name?: string;
         phone?: string;
+        profile_picture?: string | null;
         currentPassword?: string;
         newPassword?: string;
     }
@@ -253,6 +267,10 @@ export async function updateUserProfile(
     if (profileData.phone !== undefined) {
         updates.push("phone = ?");
         params.push(profileData.phone || null);
+    }
+    if (profileData.profile_picture !== undefined) {
+        updates.push("profile_picture = ?");
+        params.push(profileData.profile_picture || null);
     }
 
     // Handle password change

@@ -518,6 +518,8 @@ pub struct User {
     pub phone: Option<String>,
     pub role: String,
     pub is_active: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_picture: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -532,8 +534,12 @@ pub struct LoginResult {
 /// Initialize users table (schema from db.sql on first open).
 #[tauri::command]
 fn init_users_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+    // Add profile_picture column if missing (for existing databases). MEDIUMTEXT supports base64 images (~16MB).
+    let _ = db.execute("ALTER TABLE users ADD COLUMN profile_picture MEDIUMTEXT", ());
+    // Upgrade existing TEXT column to MEDIUMTEXT so base64 images fit
+    let _ = db.execute("ALTER TABLE users MODIFY COLUMN profile_picture MEDIUMTEXT", ());
     Ok("OK".to_string())
 }
 
@@ -574,7 +580,7 @@ fn register_user(
         .map_err(|e| format!("Failed to insert user: {}", e))?;
 
     // Get the created user
-    let user_sql = "SELECT id, username, email, full_name, phone, role, is_active, created_at, updated_at FROM users WHERE username = ?";
+    let user_sql = "SELECT id, username, email, full_name, phone, role, is_active, profile_picture, created_at, updated_at FROM users WHERE username = ?";
     let users = db
         .query(user_sql, one_param(username.as_str()), |row| {
             Ok(User {
@@ -585,8 +591,9 @@ fn register_user(
                 phone: row_get(row, 4)?,
                 role: row_get(row, 5)?,
                 is_active: row_get(row, 6)?,
-                created_at: row_get_string_or_datetime(row, 7)?,
-                updated_at: row_get_string_or_datetime(row, 8)?,
+                profile_picture: row_get::<Option<String>>(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 8)?,
+                updated_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch user: {}", e))?;
@@ -613,7 +620,7 @@ fn login_user(
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
     // Get user by username or email
-    let user_sql = "SELECT id, username, email, password_hash, full_name, phone, role, is_active, created_at, updated_at FROM users WHERE username = ? OR email = ?";
+    let user_sql = "SELECT id, username, email, password_hash, full_name, phone, role, is_active, profile_picture, created_at, updated_at FROM users WHERE username = ? OR email = ?";
     let users = db
         .query(user_sql, vec![Value::from(username.as_str()), Value::from(username.as_str())], |row| {
             Ok((
@@ -625,8 +632,9 @@ fn login_user(
                 row_get::<Option<String>>(row, 5)?,
                 row_get::<Option<String>>(row, 6)?,
                 row_get::<Option<i64>>(row, 7)?,
-                row_get_string_or_datetime(row, 8)?,
+                row_get::<Option<String>>(row, 8)?,
                 row_get_string_or_datetime(row, 9)?,
+                row_get_string_or_datetime(row, 10)?,
             ))
         })
         .map_err(|e| format!("Database query error: {}", e))?;
@@ -639,7 +647,7 @@ fn login_user(
         });
     }
 
-    let (id, db_username, email, password_hash, full_name, phone, role, is_active, created_at, updated_at) = &users[0];
+    let (id, db_username, email, password_hash, full_name, phone, role, is_active, profile_picture, created_at, updated_at) = &users[0];
 
     // Verify password
     let password_valid = bcrypt::verify(&password, password_hash)
@@ -663,6 +671,7 @@ fn login_user(
             phone: phone.clone(),
             role: role.clone().unwrap_or_else(|| "user".to_string()),
             is_active: is_active.unwrap_or(1),
+            profile_picture: profile_picture.clone(),
             created_at: created_at.clone(),
             updated_at: updated_at.clone(),
         }),
@@ -720,7 +729,7 @@ fn get_users(
         "ORDER BY created_at DESC".to_string()
     };
 
-    let sql = format!("SELECT id, username, email, full_name, phone, role, is_active, created_at, updated_at FROM users {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
+    let sql = format!("SELECT id, username, email, full_name, phone, role, is_active, profile_picture, created_at, updated_at FROM users {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
     
     params.push(serde_json::Value::Number(serde_json::Number::from(per_page)));
     params.push(serde_json::Value::Number(serde_json::Number::from(offset)));
@@ -735,8 +744,9 @@ fn get_users(
             phone: row_get(row, 4)?,
             role: row_get(row, 5)?,
             is_active: row_get(row, 6)?,
-            created_at: row_get_string_or_datetime(row, 7)?,
-            updated_at: row_get_string_or_datetime(row, 8)?,
+            profile_picture: row_get::<Option<String>>(row, 7)?,
+            created_at: row_get_string_or_datetime(row, 8)?,
+            updated_at: row_get_string_or_datetime(row, 9)?,
         })
     }).map_err(|e| format!("Failed to fetch users: {}", e))?;
 
