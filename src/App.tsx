@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
   openDatabase,
@@ -57,6 +57,50 @@ interface User {
 
 type Page = "dashboard" | "currency" | "supplier" | "product" | "purchase" | "sales" | "unit" | "customer" | "expense" | "employee" | "salary" | "deduction" | "users" | "profile" | "invoice" | "company" | "account" | "purchasePayment" | "salesPayment" | "services" | "servicePayment" | "aiReport" | "report";
 
+const DASHBOARD_USAGE_KEY = "shafaf_dashboard_usage";
+
+function getDashboardUsage(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_USAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function incrementDashboardUsage(page: Page): void {
+  const usage = getDashboardUsage();
+  usage[page] = (usage[page] || 0) + 1;
+  try {
+    localStorage.setItem(DASHBOARD_USAGE_KEY, JSON.stringify(usage));
+  } catch {
+    // ignore
+  }
+}
+
+const DASHBOARD_FEATURES: Array<{
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+  page: Page;
+}> = [
+  { title: "مدیریت اجناس", description: "افزودن، ویرایش و مدیریت اجناس و محصولات", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4", color: "from-indigo-500 to-violet-500", page: "product" },
+  { title: "مدیریت خریداری", description: "ثبت و پیگیری خریداری ها از تمویل کننده ها", icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z", color: "from-purple-500 to-blue-500", page: "purchase" },
+  { title: "مدیریت فروشات", description: "ثبت و مدیریت فروشات، صدور فاکتور و کنترل موجودی", icon: "M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z", color: "from-emerald-500 to-teal-500", page: "sales" },
+  { title: "خدمات", description: "ثبت و مدیریت خدمات با آیتم‌های آزاد (نام و قیمت)", icon: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z", color: "from-teal-500 to-cyan-500", page: "services" },
+  { title: "تمویل کننده ها", description: "مدیریت اطلاعات تمویل کننده ها و توزیع کننده ها", icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z", color: "from-green-500 to-teal-500", page: "supplier" },
+  { title: "مدیریت مشتری ها", description: "افزودن، ویرایش و مدیریت اطلاعات مشتریان", icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z", color: "from-indigo-500 to-blue-500", page: "customer" },
+  { title: "مدیریت مصارف", description: "ثبت و مدیریت مصارف و هزینه‌ها", icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z", color: "from-red-500 to-pink-500", page: "expense" },
+  { title: "مدیریت کارمندان", description: "افزودن، ویرایش و مدیریت اطلاعات کارمندان", icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z", color: "from-violet-500 to-purple-500", page: "employee" },
+  { title: "مدیریت کاربران", description: "ایجاد، ویرایش و مدیریت کاربران سیستم", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m9 5.197v-1a6 6 0 00-9-5.197", color: "from-cyan-500 to-blue-500", page: "users" },
+  { title: "تنظیمات شرکت", description: "ویرایش اطلاعات و تنظیمات شرکت", icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4", color: "from-emerald-500 to-teal-500", page: "company" },
+  { title: "گزارش‌ها", description: "تولید و خروجی گزارش‌های مختلف با فیلتر تاریخ", icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z", color: "from-indigo-500 to-purple-500", page: "report" },
+  { title: "گزارش هوشمند (AI)", description: "تولید گزارش جدول و چارت بر اساس درخواست متنی", icon: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z", color: "from-violet-500 to-fuchsia-500", page: "aiReport" },
+];
+
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [licenseValid, setLicenseValid] = useState<boolean | null>(null);
@@ -89,6 +133,12 @@ function App() {
     date?: string;
     body?: string;
   } | null>(null);
+
+  // Sort dashboard features by usage (most used first)
+  const sortedDashboardFeatures = useMemo(() => {
+    const usage = getDashboardUsage();
+    return [...DASHBOARD_FEATURES].sort((a, b) => (usage[b.page] || 0) - (usage[a.page] || 0));
+  }, [currentPage]);
 
   // Theme state - initialize from localStorage or system preference
   const [isDark, setIsDark] = useState(() => {
@@ -911,95 +961,13 @@ function App() {
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[
-              {
-                title: "مدیریت اجناس",
-                description: "افزودن، ویرایش و مدیریت اجناس و محصولات",
-                icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4",
-                color: "from-indigo-500 to-violet-500",
-                page: "product" as Page,
-              },
-              {
-                title: "مدیریت خریداری",
-                description: "ثبت و پیگیری خریداری ها از تمویل کننده ها",
-                icon: "M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z",
-                color: "from-purple-500 to-blue-500",
-                page: "purchase" as Page,
-              },
-              {
-                title: "مدیریت فروشات",
-                description: "ثبت و مدیریت فروشات، صدور فاکتور و کنترل موجودی",
-                icon: "M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z",
-                color: "from-emerald-500 to-teal-500",
-                page: "sales" as Page,
-              },
-              {
-                title: "خدمات",
-                description: "ثبت و مدیریت خدمات با آیتم‌های آزاد (نام و قیمت)",
-                icon: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
-                color: "from-teal-500 to-cyan-500",
-                page: "services" as Page,
-              },
-              {
-                title: "تمویل کننده ها",
-                description: "مدیریت اطلاعات تمویل کننده ها و توزیع کننده ها",
-                icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z",
-                color: "from-green-500 to-teal-500",
-                page: "supplier" as Page,
-              },
-              {
-                title: "مدیریت مشتری ها",
-                description: "افزودن، ویرایش و مدیریت اطلاعات مشتریان",
-                icon: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
-                color: "from-indigo-500 to-blue-500",
-                page: "customer" as Page,
-              },
-              {
-                title: "مدیریت مصارف",
-                description: "ثبت و مدیریت مصارف و هزینه‌ها",
-                icon: "M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z",
-                color: "from-red-500 to-pink-500",
-                page: "expense" as Page,
-              },
-              {
-                title: "مدیریت کارمندان",
-                description: "افزودن، ویرایش و مدیریت اطلاعات کارمندان",
-                icon: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z",
-                color: "from-violet-500 to-purple-500",
-                page: "employee" as Page,
-              },
-              {
-                title: "مدیریت کاربران",
-                description: "ایجاد، ویرایش و مدیریت کاربران سیستم",
-                icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m9 5.197v-1a6 6 0 00-9-5.197",
-                color: "from-cyan-500 to-blue-500",
-                page: "users" as Page,
-              },
-              {
-                title: "تنظیمات شرکت",
-                description: "ویرایش اطلاعات و تنظیمات شرکت",
-                icon: "M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4",
-                color: "from-emerald-500 to-teal-500",
-                page: "company" as Page,
-              },
-              {
-                title: "گزارش‌ها",
-                description: "تولید و خروجی گزارش‌های مختلف با فیلتر تاریخ",
-                icon: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-                color: "from-indigo-500 to-purple-500",
-                page: "report" as Page,
-              },
-              {
-                title: "گزارش هوشمند (AI)",
-                description: "تولید گزارش جدول و چارت بر اساس درخواست متنی",
-                icon: "M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z",
-                color: "from-violet-500 to-fuchsia-500",
-                page: "aiReport" as Page,
-              },
-            ].map((item, index) => (
+            {sortedDashboardFeatures.map((item, index) => (
               <motion.button
                 key={item.title}
-                onClick={() => setCurrentPage(item.page)}
+                onClick={() => {
+                  incrementDashboardUsage(item.page);
+                  setCurrentPage(item.page);
+                }}
                 initial={{ opacity: 0, y: 20, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{ delay: 0.5 + index * 0.05, type: "spring", stiffness: 200 }}
