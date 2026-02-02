@@ -139,6 +139,7 @@ export default function ProfileEdit({ userId, onBack, onProfileUpdate }: Profile
                 email: formData.email,
                 full_name: formData.full_name || undefined,
                 phone: formData.phone || undefined,
+                profile_picture: formData.profile_picture ?? undefined,
                 currentPassword: showPasswordSection ? passwordData.currentPassword : undefined,
                 newPassword: showPasswordSection ? passwordData.newPassword : undefined,
             });

@@ -52,6 +52,7 @@ interface User {
   id: number;
   username: string;
   email: string;
+  profile_picture?: string | null;
 }
 
 type Page = "dashboard" | "currency" | "supplier" | "product" | "purchase" | "sales" | "unit" | "customer" | "expense" | "employee" | "salary" | "deduction" | "users" | "profile" | "invoice" | "company" | "account" | "purchasePayment" | "salesPayment" | "services" | "servicePayment" | "aiReport" | "report";
@@ -568,6 +569,7 @@ function App() {
             id: updatedUser.id,
             username: updatedUser.username,
             email: updatedUser.email,
+            profile_picture: updatedUser.profile_picture ?? undefined,
           });
         }}
       />
@@ -769,12 +771,20 @@ function App() {
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setCurrentPage("profile")}
-                className="w-12 h-12 bg-gradient-to-br from-purple-500 to-blue-500 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 group relative"
+                className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 group relative overflow-hidden bg-gradient-to-br from-purple-500 to-blue-500"
                 title="ویرایش پروفایل"
               >
-                <span className="text-white font-bold text-lg group-hover:scale-110 transition-transform">
-                  {user.username.charAt(0).toUpperCase()}
-                </span>
+                {user.profile_picture ? (
+                  <img
+                    src={user.profile_picture}
+                    alt={user.username}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-white font-bold text-lg group-hover:scale-110 transition-transform">
+                    {user.username.charAt(0).toUpperCase()}
+                  </span>
+                )}
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full flex items-center justify-center shadow-md border-2 border-white dark:border-gray-800">
                   <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
