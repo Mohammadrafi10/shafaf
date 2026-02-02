@@ -13,14 +13,22 @@ This application uses environment variables for configuration. Create a `.env` f
 
 ## Configuration Variables
 
-### Database Configuration
+### Database Configuration (MySQL)
 
-- `DATABASE_PATH`: Path to the SQLite database file
-  - **Windows**: Use forward slashes or escaped backslashes
-    - Example: `E:/db.sqlite` or `E:\\db.sqlite`
-  - **Linux/Mac**: Use standard paths
-    - Example: `./data/db.sqlite` or `/var/lib/app/db.sqlite`
-  - **Default**: `E:\\db.sqlite` (Windows) or `./data/db.sqlite` (Linux/Mac)
+- `MYSQL_HOST`: MySQL server host (default: `127.0.0.1`)
+- `MYSQL_PORT`: MySQL server port (default: `3306`)
+- `MYSQL_USER`: MySQL username
+- `MYSQL_PASSWORD`: MySQL password
+- `MYSQL_DATABASE`: Database name to use
+
+Example:
+```
+MYSQL_HOST=127.0.0.1
+MYSQL_PORT=3306
+MYSQL_USER=myuser
+MYSQL_PASSWORD=mypassword
+MYSQL_DATABASE=tauri_app
+```
 
 ### Application Configuration
 
@@ -38,3 +46,4 @@ The environment variables are loaded automatically when the application starts. 
 - The `.env` file is excluded from version control (see `.gitignore`)
 - Always use `.env.example` as a template for creating your `.env` file
 - Never commit your `.env` file to version control as it may contain sensitive information
+- A MySQL server must be running and the database created (or use `db_create` from the app) before opening the database

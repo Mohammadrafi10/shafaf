@@ -10,24 +10,20 @@ export interface ExecuteResult {
 }
 
 /**
- * Create a new SQLite database file
- * Database is automatically created in the OS-specific data directory if it doesn't exist
- * @param dbName Name of the database (without .db extension)
- * @returns Promise with the database path
+ * Create a new MySQL database (if it doesn't exist) and connect
+ * Connection uses MYSQL_* environment variables
+ * @param dbName Name of the database (optional; uses MYSQL_DATABASE if empty)
+ * @returns Promise with the connection/status message
  */
 export async function createDatabase(dbName: string): Promise<string> {
   return await invoke<string>("db_create", { dbName });
 }
 
 /**
- * Open database (creates it automatically if it doesn't exist)
- * Database path is automatically determined based on OS:
- * - Windows: %LOCALAPPDATA%\shafaf\db.sqlite
- * - macOS: ~/Library/Application Support/shafaf/db.sqlite
- * - Linux: ~/.local/share/shafaf/db.sqlite or $XDG_DATA_HOME/shafaf/db.sqlite
- * Note: Directory name remains "shafaf" for technical compatibility
- * @param dbName Name of the database (without .db extension) - currently not used
- * @returns Promise with the database path
+ * Open database (connect to MySQL)
+ * Connection parameters are read from environment: MYSQL_HOST, MYSQL_PORT, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
+ * @param dbName Name of the database (optional; uses MYSQL_DATABASE if empty)
+ * @returns Promise with the connection/status message
  */
 export async function openDatabase(dbName: string): Promise<string> {
   return await invoke<string>("db_open", { dbName });

@@ -297,10 +297,10 @@ function App() {
     try {
       // Open save dialog first so user picks where to save
       const filePath = await save({
-        defaultPath: `db-backup-${new Date().toISOString().split('T')[0]}.sqlite`,
+        defaultPath: `db-backup-${new Date().toISOString().split('T')[0]}.sql`,
         filters: [{
-          name: 'SQLite Database',
-          extensions: ['sqlite', 'db']
+          name: 'MySQL Dump',
+          extensions: ['sql']
         }]
       });
 
@@ -322,8 +322,8 @@ function App() {
       // Open file dialog to select backup file
       const filePath = await open({
         filters: [{
-          name: 'SQLite Database',
-          extensions: ['sqlite', 'db']
+          name: 'MySQL Dump',
+          extensions: ['sql']
         }],
         title: 'انتخاب فایل پشتیبان'
       });

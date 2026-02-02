@@ -1,118 +1,110 @@
-    use rusqlite::{Connection, Result as SqliteResult, OpenFlags};
-use std::path::PathBuf;
+use mysql::{Conn, Opts, prelude::*};
 use std::sync::Mutex;
 use anyhow::Result;
 
 pub struct Database {
-    conn: Mutex<Option<Connection>>,
-    db_path: PathBuf,
+    conn: Mutex<Option<Conn>>,
+    opts: Opts,
+    /// Connection info for display (e.g. "host/database")
+    connection_info: String,
 }
 
 impl Database {
-    pub fn new(db_path: PathBuf) -> Self {
+    pub fn new(opts: Opts) -> Self {
+        let connection_info = format!(
+            "{}/{}",
+            opts.get_ip_or_hostname(),
+            opts.get_db_name().unwrap_or("")
+        );
         Database {
             conn: Mutex::new(None),
-            db_path,
+            opts,
+            connection_info,
         }
     }
 
-    /// Create a new database file (does not open it)
-    pub fn create_database(&self) -> Result<()> {
-        if self.db_path.exists() {
-            return Err(anyhow::anyhow!("Database already exists at {:?}", self.db_path));
-        }
-        
-        // Create the database by opening a connection with read-write access
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
-        let conn = Connection::open_with_flags(&self.db_path, flags)?;
-        conn.close().map_err(|(_, e)| anyhow::anyhow!("Failed to close connection: {}", e))?;
-        
-        Ok(())
-    }
-
-    /// Open the database connection with explicit read-write access
-    /// Creates the database file if it doesn't exist
+    /// Open the MySQL connection using stored opts.
     pub fn open(&self) -> Result<()> {
         let mut conn_guard = self.conn.lock().unwrap();
         if conn_guard.is_some() {
-            return Ok(()); // Already open
+            return Ok(());
         }
-
-        // Open with explicit read-write flags to ensure write access
-        // SQLITE_OPEN_CREATE flag will create the database if it doesn't exist
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
-        let conn = Connection::open_with_flags(&self.db_path, flags)?;
+        let conn = Conn::new(self.opts.clone())?;
         *conn_guard = Some(conn);
         Ok(())
     }
 
-    /// Close the database connection
+    /// Close the database connection.
     pub fn close(&self) -> Result<()> {
         let mut conn_guard = self.conn.lock().unwrap();
         if let Some(conn) = conn_guard.take() {
-            conn.close().map_err(|(_, e)| anyhow::anyhow!("Failed to close connection: {}", e))?;
+            drop(conn);
         }
         Ok(())
     }
 
-    /// Check if database is open
+    /// Check if database is open.
     pub fn is_open(&self) -> bool {
         let conn_guard = self.conn.lock().unwrap();
         conn_guard.is_some()
     }
 
-    /// Execute a SQL query that doesn't return results
-    pub fn execute(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Result<usize> {
+    /// Execute a SQL query that doesn't return results.
+    /// Params: pass values that implement Into<mysql::Params> (e.g. (), (a, b), or vec of Value).
+    pub fn execute<P: Into<mysql::Params>>(&self, sql: &str, params: P) -> Result<usize> {
         let mut conn_guard = self.conn.lock().unwrap();
         let conn = conn_guard.as_mut().ok_or_else(|| anyhow::anyhow!("Database is not open. Please open it first."))?;
-        Ok(conn.execute(sql, params)?)
+        let stmt = conn.prep(sql)?;
+        conn.exec_drop(&stmt, params)?;
+        Ok(conn.affected_rows() as usize)
     }
 
-    /// Execute a SQL query and return results
-    pub fn query<T, F>(&self, sql: &str, params: &[&dyn rusqlite::ToSql], f: F) -> Result<Vec<T>>
+    /// Execute a SQL query and return results; map each row with f.
+    pub fn query<T, P, F>(&self, sql: &str, params: P, mut f: F) -> Result<Vec<T>>
     where
-        F: FnMut(&rusqlite::Row<'_>) -> SqliteResult<T>,
+        P: Into<mysql::Params>,
+        F: FnMut(&mysql::Row) -> Result<T>,
     {
         let mut conn_guard = self.conn.lock().unwrap();
         let conn = conn_guard.as_mut().ok_or_else(|| anyhow::anyhow!("Database is not open. Please open it first."))?;
-        let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map(params, f)?;
-        let mut results = Vec::new();
-        for row in rows {
-            results.push(row?);
+        let stmt = conn.prep(sql)?;
+        let mut result = conn.exec_iter(&stmt, params)?;
+        let mut rows = Vec::new();
+        if let Some(rows_iter) = result.iter() {
+            for row in rows_iter {
+                let row = row?;
+                rows.push(f(&row)?);
+            }
         }
-        Ok(results)
+        Ok(rows)
     }
 
-    /// Get column names from a prepared statement
+    /// Get column names from a prepared statement (prep only, no execute).
     pub fn get_columns(&self, sql: &str) -> Result<Vec<String>> {
         let mut conn_guard = self.conn.lock().unwrap();
         let conn = conn_guard.as_mut().ok_or_else(|| anyhow::anyhow!("Database is not open. Please open it first."))?;
-        let stmt = conn.prepare(sql)?;
-        let column_count = stmt.column_count();
-        let columns: Vec<String> = (0..column_count)
-            .map(|i| stmt.column_name(i).unwrap_or("").to_string())
-            .collect();
+        let stmt = conn.prep(sql)?;
+        let columns = stmt.columns().iter().map(|c| c.name_str().to_string()).collect();
         Ok(columns)
     }
 
-    /// Get connection for advanced operations (internal use)
+    /// Get connection for advanced operations (internal use).
     pub fn with_connection<F, R>(&self, f: F) -> Result<R>
     where
-        F: FnOnce(&mut Connection) -> Result<R>,
+        F: FnOnce(&mut Conn) -> Result<R>,
     {
         let mut conn_guard = self.conn.lock().unwrap();
         let conn = conn_guard.as_mut().ok_or_else(|| anyhow::anyhow!("Database is not open. Please open it first."))?;
         f(conn)
     }
 
-    /// Get the database path
-    pub fn get_path(&self) -> &PathBuf {
-        &self.db_path
+    /// Get connection info string (e.g. "127.0.0.1/dbname").
+    pub fn get_connection_info(&self) -> &str {
+        &self.connection_info
     }
 
-    /// Check if database file exists
+    /// Check if we have an active connection.
     pub fn exists(&self) -> bool {
-        self.db_path.exists()
+        self.is_open()
     }
 }
