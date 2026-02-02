@@ -34,6 +34,7 @@ import PersianDatePicker from "./PersianDatePicker";
 import { formatPersianDate, getCurrentPersianDate, persianToGeorgian } from "../utils/date";
 import Table from "./common/Table";
 import PageHeader from "./common/PageHeader";
+import SearchableSelect from "./common/SearchableSelect";
 import { Search } from "lucide-react";
 
 // Dari translations
@@ -80,6 +81,7 @@ const translations = {
   initialPaymentOptional: "پرداخت اولیه (اختیاری)",
   optional: "اختیاری",
   totalPurchases: "تعداد خریداری‌ها",
+  searchProductByNameOrBarcode: "جستجوی محصول (نام یا بارکد)",
   totalValue: "ارزش کل",
   success: {
     created: "خریداری با موفقیت ایجاد شد",
@@ -208,7 +210,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
       setUnits(unitsData);
       setCurrencies(currenciesData);
       setAccounts(accountsData);
-      
+
       // Initialize currency_id if not set and currencies are available
       if (currenciesData.length > 0 && formData.currency_id === 0) {
         setFormData(prev => ({
@@ -1133,19 +1135,18 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
                                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                   {translations.product}
                                 </label>
-                                <select
+                                <SearchableSelect<Product>
+                                  options={products}
                                   value={item.product_id}
-                                  onChange={(e) => updateItem(index, 'product_id', parseInt(e.target.value))}
-                                  className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-purple-500"
+                                  onChange={(id) => updateItem(index, "product_id", id)}
+                                  getOptionLabel={(p) =>
+                                    p.bar_code ? `${p.name} (${p.bar_code})` : p.name
+                                  }
+                                  getOptionValue={(p) => p.id}
+                                  placeholder="انتخاب محصول"
+                                  searchPlaceholder={translations.searchProductByNameOrBarcode}
                                   dir="rtl"
-                                >
-                                  <option value={0}>انتخاب محصول</option>
-                                  {products.map((product) => (
-                                    <option key={product.id} value={product.id}>
-                                      {product.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                />
                               </div>
                               <div className="col-span-2">
                                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
