@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS coa_categories (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     parent_id BIGINT,
     name TEXT NOT NULL,
-    code TEXT NOT NULL UNIQUE,
+    code VARCHAR(255) NOT NULL UNIQUE,
     category_type TEXT NOT NULL,
     level INT NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     name TEXT NOT NULL,
     currency_id BIGINT,
     coa_category_id BIGINT,
-    account_code TEXT UNIQUE,
+    account_code VARCHAR(255) UNIQUE,
     account_type TEXT,
     initial_balance DOUBLE NOT NULL DEFAULT 0,
     current_balance DOUBLE NOT NULL DEFAULT 0,
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS service_payments (
 
 CREATE TABLE IF NOT EXISTS expense_types (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    name TEXT NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL UNIQUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS deductions (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     employee_id BIGINT NOT NULL,
     year INT NOT NULL DEFAULT 1403,
-    month TEXT NOT NULL DEFAULT 'حمل',
+    month VARCHAR(255) NOT NULL DEFAULT 'حمل',
     currency TEXT NOT NULL,
     rate DOUBLE NOT NULL DEFAULT 1.0,
     amount DOUBLE NOT NULL,
@@ -354,7 +354,7 @@ CREATE TABLE IF NOT EXISTS account_currency_balances (
 
 CREATE TABLE IF NOT EXISTS journal_entries (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    entry_number TEXT NOT NULL UNIQUE,
+    entry_number VARCHAR(255) NOT NULL UNIQUE,
     entry_date TEXT NOT NULL,
     description TEXT,
     reference_type TEXT,
@@ -405,5 +405,38 @@ CREATE TABLE IF NOT EXISTS account_transactions (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );
+
+-- Default currencies (افغانی as base)
+INSERT IGNORE INTO currencies (name, base, rate) VALUES
+    ('افغانی', 1, 1.0),
+    ('دالر', 0, 1.0),
+    ('کلدار', 0, 1.0),
+    ('یورو', 0, 1.0),
+    ('تومان', 0, 1.0);
+
+-- Default unit groups and units
+INSERT IGNORE INTO unit_groups (name) VALUES ('تعداد'), ('وزن'), ('طول'), ('حجم');
+
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'عدد', id, 1.0, 1 FROM unit_groups WHERE name = 'تعداد' LIMIT 1;
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'جعبه', id, 12.0, 0 FROM unit_groups WHERE name = 'تعداد' LIMIT 1;
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'کارتن', id, 120.0, 0 FROM unit_groups WHERE name = 'تعداد' LIMIT 1;
+
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'کیلوگرم', id, 1.0, 1 FROM unit_groups WHERE name = 'وزن' LIMIT 1;
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'گرم', id, 0.001, 0 FROM unit_groups WHERE name = 'وزن' LIMIT 1;
+
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'متر', id, 1.0, 1 FROM unit_groups WHERE name = 'طول' LIMIT 1;
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'سانتی‌متر', id, 0.01, 0 FROM unit_groups WHERE name = 'طول' LIMIT 1;
+
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'لیتر', id, 1.0, 1 FROM unit_groups WHERE name = 'حجم' LIMIT 1;
+INSERT IGNORE INTO units (name, group_id, ratio, is_base)
+SELECT 'میلی‌لیتر', id, 0.001, 0 FROM unit_groups WHERE name = 'حجم' LIMIT 1;
 
 INSERT IGNORE INTO company_settings (id, name, logo, phone, address, font) VALUES (1, 'شرکت', NULL, NULL, NULL, NULL);

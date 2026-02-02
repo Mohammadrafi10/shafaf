@@ -277,6 +277,23 @@ fn restore_database(backup_path: String) -> Result<String, String> {
 /// Embedded schema: run on first init when users table does not exist.
 const INIT_SQL: &str = include_str!("../data/db.sql");
 
+/// Insert test user (testuser / admin@test.com / 123) if no user exists yet.
+fn insert_test_user_if_needed(db: &Database) -> Result<(), String> {
+    let check_sql = "SELECT COUNT(*) FROM users WHERE username = ?";
+    let counts: Vec<i64> = db
+        .query(check_sql, ("testuser",), |row| Ok(row_get::<i64>(row, 0)?))
+        .map_err(|e| format!("Failed to check test user: {}", e))?;
+    if counts.first().copied().unwrap_or(0) > 0 {
+        return Ok(());
+    }
+    let password_hash = bcrypt::hash("123", bcrypt::DEFAULT_COST)
+        .map_err(|e| format!("Failed to hash test password: {}", e))?;
+    let insert_sql = "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)";
+    db.execute(insert_sql, ("testuser", "admin@test.com", password_hash.as_str(), "admin"))
+        .map_err(|e| format!("Failed to insert test user: {}", e))?;
+    Ok(())
+}
+
 /// Run db.sql if the database has no users table (first-time init).
 fn run_schema_if_needed(db: &Database) -> Result<(), String> {
     let check_sql = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'users'";
@@ -288,12 +305,21 @@ fn run_schema_if_needed(db: &Database) -> Result<(), String> {
         return Ok(());
     }
     for stmt in INIT_SQL.split(';') {
-        let stmt = stmt.trim();
-        if stmt.is_empty() || stmt.starts_with("--") {
+        // Strip leading comment lines and blank lines so ";\n-- comment\n\nCREATE TABLE..." is executed
+        let stmt = stmt
+            .trim()
+            .lines()
+            .skip_while(|line| line.trim().is_empty() || line.trim().starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        if stmt.is_empty() {
             continue;
         }
-        db.execute(stmt, ()).map_err(|e| format!("Schema statement failed: {} | {}", e, stmt))?;
+        db.execute(&stmt, ()).map_err(|e| format!("Schema statement failed: {} | {}", e, stmt))?;
     }
+    insert_test_user_if_needed(db)?;
     Ok(())
 }
 
@@ -365,6 +391,19 @@ fn row_get<T: mysql::prelude::FromValue>(row: &mysql::Row, i: usize) -> anyhow::
     row.get(i).ok_or_else(|| anyhow::anyhow!("column {}", i))
 }
 
+/// Get column as String, converting MySQL Date/Time to string (Date/Time do not convert to String via FromValue).
+fn row_get_string_or_datetime(row: &mysql::Row, i: usize) -> anyhow::Result<String> {
+    let v = row.as_ref(i).ok_or_else(|| anyhow::anyhow!("column {}", i))?;
+    match v {
+        Value::Date(y, mo, d, h, mi, s, _) => Ok(format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, mo, d, h, mi, s)),
+        Value::Time(neg, days, h, mi, s, micro) => {
+            let sign = if *neg { "-" } else { "" };
+            Ok(format!("{}{:03}:{:02}:{:02}:{:02}.{:06}", sign, days, h, mi, s, micro))
+        }
+        _ => row_get::<String>(row, i),
+    }
+}
+
 /// Single positional param for mysql (Vec<Value> implements Into<Params>).
 fn one_param<V: Into<Value>>(v: V) -> Vec<Value> {
     vec![v.into()]
@@ -389,9 +428,22 @@ fn json_to_mysql_value(v: &serde_json::Value) -> Value {
     }
 }
 
+/// Format MySQL Date/Time value as string (mysql crate does not convert Date to String).
+fn value_date_time_to_string(v: &Value) -> serde_json::Value {
+    match v {
+        Value::Date(y, mo, d, h, mi, s, _) => {
+            serde_json::Value::String(format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, mo, d, h, mi, s))
+        }
+        Value::Time(neg, days, h, mi, s, micro) => {
+            let sign = if *neg { "-" } else { "" };
+            serde_json::Value::String(format!("{}{:03}:{:02}:{:02}:{:02}.{:06}", sign, days, h, mi, s, micro))
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
 /// Convert mysql Value to serde_json::Value for query results.
 fn mysql_value_to_json(v: &Value) -> serde_json::Value {
-    use mysql::from_value;
     match v {
         Value::NULL => serde_json::Value::Null,
         Value::Int(x) => serde_json::Value::Number(serde_json::Number::from(*x)),
@@ -402,12 +454,7 @@ fn mysql_value_to_json(v: &Value) -> serde_json::Value {
             Ok(s) => serde_json::Value::String(s.to_string()),
             Err(_) => serde_json::Value::String(format!("[BLOB:{} bytes]", b.len())),
         },
-        Value::Date(_, _, _, _, _, _, _) => {
-            serde_json::Value::String(from_value::<String>(v.clone()))
-        }
-        Value::Time(_, _, _, _, _, _) => {
-            serde_json::Value::String(from_value::<String>(v.clone()))
-        }
+        Value::Date(..) | Value::Time(..) => value_date_time_to_string(v),
     }
 }
 
@@ -538,8 +585,8 @@ fn register_user(
                 phone: row_get(row, 4)?,
                 role: row_get(row, 5)?,
                 is_active: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch user: {}", e))?;
@@ -578,8 +625,8 @@ fn login_user(
                 row_get::<Option<String>>(row, 5)?,
                 row_get::<Option<String>>(row, 6)?,
                 row_get::<Option<i64>>(row, 7)?,
-                row_get::<String>(row, 8)?,
-                row_get::<String>(row, 9)?,
+                row_get_string_or_datetime(row, 8)?,
+                row_get_string_or_datetime(row, 9)?,
             ))
         })
         .map_err(|e| format!("Database query error: {}", e))?;
@@ -688,8 +735,8 @@ fn get_users(
             phone: row_get(row, 4)?,
             role: row_get(row, 5)?,
             is_active: row_get(row, 6)?,
-            created_at: row_get(row, 7)?,
-            updated_at: row_get(row, 8)?,
+            created_at: row_get_string_or_datetime(row, 7)?,
+            updated_at: row_get_string_or_datetime(row, 8)?,
         })
     }).map_err(|e| format!("Failed to fetch users: {}", e))?;
 
@@ -850,8 +897,8 @@ fn create_currency(
                 name: row_get(row, 1)?,
                 base: row_get::<i64>(row, 2)? != 0,
                 rate: row_get(row, 3)?,
-                created_at: row_get(row, 4)?,
-                updated_at: row_get(row, 5)?,
+                created_at: row_get_string_or_datetime(row, 4)?,
+                updated_at: row_get_string_or_datetime(row, 5)?,
             })
         })
         .map_err(|e| format!("Failed to fetch currency: {}", e))?;
@@ -877,8 +924,8 @@ fn get_currencies(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Vec<Cu
                 name: row_get(row, 1)?,
                 base: row_get::<i64>(row, 2)? != 0,
                 rate: row_get(row, 3)?,
-                created_at: row_get(row, 4)?,
-                updated_at: row_get(row, 5)?,
+                created_at: row_get_string_or_datetime(row, 4)?,
+                updated_at: row_get_string_or_datetime(row, 5)?,
             })
         })
         .map_err(|e| format!("Failed to fetch currencies: {}", e))?;
@@ -920,8 +967,8 @@ fn update_currency(
                 name: row_get(row, 1)?,
                 base: row_get::<i64>(row, 2)? != 0,
                 rate: row_get(row, 3)?,
-                created_at: row_get(row, 4)?,
-                updated_at: row_get(row, 5)?,
+                created_at: row_get_string_or_datetime(row, 4)?,
+                updated_at: row_get_string_or_datetime(row, 5)?,
             })
         })
         .map_err(|e| format!("Failed to fetch currency: {}", e))?;
@@ -1007,8 +1054,8 @@ fn create_supplier(
                 address: row_get(row, 3)?,
                 email: row_get::<Option<String>>(row, 4)?,
                 notes: row_get::<Option<String>>(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch supplier: {}", e))?;
@@ -1079,8 +1126,8 @@ fn get_suppliers(
             address: row_get(row, 3)?,
             email: row_get::<Option<String>>(row, 4)?,
             notes: row_get::<Option<String>>(row, 5)?,
-            created_at: row_get(row, 6)?,
-            updated_at: row_get(row, 7)?,
+            created_at: row_get_string_or_datetime(row, 6)?,
+            updated_at: row_get_string_or_datetime(row, 7)?,
         })
     }).map_err(|e| format!("Failed to fetch suppliers: {}", e))?;
 
@@ -1134,8 +1181,8 @@ fn update_supplier(
                 address: row_get(row, 3)?,
                 email: row_get::<Option<String>>(row, 4)?,
                 notes: row_get::<Option<String>>(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch supplier: {}", e))?;
@@ -1221,8 +1268,8 @@ fn create_customer(
                 address: row_get(row, 3)?,
                 email: row_get::<Option<String>>(row, 4)?,
                 notes: row_get::<Option<String>>(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch customer: {}", e))?;
@@ -1293,8 +1340,8 @@ fn get_customers(
             address: row_get(row, 3)?,
             email: row_get::<Option<String>>(row, 4)?,
             notes: row_get::<Option<String>>(row, 5)?,
-            created_at: row_get(row, 6)?,
-            updated_at: row_get(row, 7)?,
+            created_at: row_get_string_or_datetime(row, 6)?,
+            updated_at: row_get_string_or_datetime(row, 7)?,
         })
     }).map_err(|e| format!("Failed to fetch customers: {}", e))?;
 
@@ -1348,8 +1395,8 @@ fn update_customer(
                 address: row_get(row, 3)?,
                 email: row_get::<Option<String>>(row, 4)?,
                 notes: row_get::<Option<String>>(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch customer: {}", e))?;
@@ -1406,8 +1453,8 @@ fn get_unit_groups(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Vec<U
             Ok(UnitGroup {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
             })
         })
         .map_err(|e| format!("Failed to fetch unit groups: {}", e))?;
@@ -1434,8 +1481,8 @@ fn create_unit_group(
             Ok(UnitGroup {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
             })
         })
         .map_err(|e| format!("Failed to fetch unit group: {}", e))?;
@@ -1497,8 +1544,8 @@ fn create_unit(
             Ok(Unit {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
                 group_id: row_get(row, 4)?,
                 ratio: row_get(row, 5)?,
                 is_base: row_get::<i32>(row, 6)? != 0,
@@ -1526,8 +1573,8 @@ fn get_units(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Vec<Unit>, 
             Ok(Unit {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
                 group_id: row_get(row, 4)?,
                 ratio: row_get(row, 5)?,
                 is_base: row_get::<i32>(row, 6)? != 0,
@@ -1570,8 +1617,8 @@ fn update_unit(
             Ok(Unit {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
                 group_id: row_get(row, 4)?,
                 ratio: row_get(row, 5)?,
                 is_base: row_get::<i32>(row, 6)? != 0,
@@ -1679,8 +1726,8 @@ fn create_product(
                 unit: row_get::<Option<String>>(row, 7)?,
                 image_path: row_get::<Option<String>>(row, 8)?,
                 bar_code: row_get::<Option<String>>(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch product: {}", e))?;
@@ -1753,8 +1800,8 @@ fn get_products(
             unit: row_get::<Option<String>>(row, 7)?,
             image_path: row_get::<Option<String>>(row, 8)?,
             bar_code: row_get::<Option<String>>(row, 9)?,
-            created_at: row_get(row, 10)?,
-            updated_at: row_get(row, 11)?,
+            created_at: row_get_string_or_datetime(row, 10)?,
+            updated_at: row_get_string_or_datetime(row, 11)?,
         })
     }).map_err(|e| format!("Failed to fetch products: {}", e))?;
 
@@ -1822,8 +1869,8 @@ fn update_product(
                 unit: row_get::<Option<String>>(row, 7)?,
                 image_path: row_get::<Option<String>>(row, 8)?,
                 bar_code: row_get::<Option<String>>(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch product: {}", e))?;
@@ -2030,8 +2077,8 @@ fn create_purchase(
                 total_amount: row_get(row, 5)?,
                 additional_cost: additional_costs_total, // Sum of all additional costs
                 batch_number: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase: {}", e))?;
@@ -2108,8 +2155,8 @@ fn get_purchases(
             total_amount: row_get(row, 5)?,
             additional_cost: 0.0,
             batch_number: row_get(row, 6)?,
-            created_at: row_get(row, 7)?,
-            updated_at: row_get(row, 8)?,
+            created_at: row_get_string_or_datetime(row, 7)?,
+            updated_at: row_get_string_or_datetime(row, 8)?,
         })
     }).map_err(|e| format!("Failed to fetch purchases: {}", e))?;
 
@@ -2150,8 +2197,8 @@ fn get_purchase(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result
                 total_amount: row_get(row, 5)?,
                 additional_cost: 0.0, // Will be calculated from purchase_additional_costs table
                 batch_number: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase: {}", e))?;
@@ -2185,7 +2232,7 @@ fn get_purchase(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result
                 wholesale_price: row_get(row, 9)?,
                 retail_price: row_get(row, 10)?,
                 expiry_date: row_get(row, 11)?,
-                created_at: row_get(row, 12)?,
+                created_at: row_get_string_or_datetime(row, 12)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase items: {}", e))?;
@@ -2280,8 +2327,8 @@ fn update_purchase(
                 total_amount: row_get(row, 5)?,
                 additional_cost: additional_costs_total, // Sum of all additional costs
                 batch_number: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase: {}", e))?;
@@ -2362,7 +2409,7 @@ fn create_purchase_item(
                 wholesale_price: row_get(row, 9)?,
                 retail_price: row_get(row, 10)?,
                 expiry_date: row_get(row, 11)?,
-                created_at: row_get(row, 12)?,
+                created_at: row_get_string_or_datetime(row, 12)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase item: {}", e))?;
@@ -2396,7 +2443,7 @@ fn get_purchase_items(db_state: State<'_, Mutex<Option<Database>>>, purchase_id:
                 wholesale_price: row_get(row, 9)?,
                 retail_price: row_get(row, 10)?,
                 expiry_date: row_get(row, 11)?,
-                created_at: row_get(row, 12)?,
+                created_at: row_get_string_or_datetime(row, 12)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase items: {}", e))?;
@@ -2418,7 +2465,7 @@ fn get_purchase_additional_costs(db_state: State<'_, Mutex<Option<Database>>>, p
                 purchase_id: row_get(row, 1)?,
                 name: row_get(row, 2)?,
                 amount: row_get(row, 3)?,
-                created_at: row_get(row, 4)?,
+                created_at: row_get_string_or_datetime(row, 4)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase additional costs: {}", e))?;
@@ -2489,7 +2536,7 @@ fn update_purchase_item(
                 wholesale_price: row_get(row, 9)?,
                 retail_price: row_get(row, 10)?,
                 expiry_date: row_get(row, 11)?,
-                created_at: row_get(row, 12)?,
+                created_at: row_get_string_or_datetime(row, 12)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase item: {}", e))?;
@@ -2654,7 +2701,7 @@ fn create_purchase_payment(
                 total: row_get(row, 6)?,
                 date: row_get(row, 7)?,
                 notes: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase payment: {}", e))?;
@@ -2731,7 +2778,7 @@ fn get_purchase_payments(
             total: row_get(row, 6)?,
             date: row_get(row, 7)?,
             notes: row_get(row, 8)?,
-            created_at: row_get(row, 9)?,
+            created_at: row_get_string_or_datetime(row, 9)?,
         })
     }).map_err(|e| format!("Failed to fetch purchase payments: {}", e))?;
 
@@ -2765,7 +2812,7 @@ fn get_purchase_payments_by_purchase(db_state: State<'_, Mutex<Option<Database>>
                 total: row_get(row, 6)?,
                 date: row_get(row, 7)?,
                 notes: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase payments: {}", e))?;
@@ -2816,7 +2863,7 @@ fn update_purchase_payment(
                 total: row_get(row, 6)?,
                 date: row_get(row, 7)?,
                 notes: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch purchase payment: {}", e))?;
@@ -3065,8 +3112,8 @@ fn create_sale(
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
                 additional_cost: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale: {}", e))?;
@@ -3146,8 +3193,8 @@ fn get_sales(
             base_amount: row_get(row, 7)?,
             paid_amount: row_get(row, 8)?,
             additional_cost: row_get(row, 9)?,
-            created_at: row_get(row, 10)?,
-            updated_at: row_get(row, 11)?,
+            created_at: row_get_string_or_datetime(row, 10)?,
+            updated_at: row_get_string_or_datetime(row, 11)?,
         })
     }).map_err(|e| format!("Failed to fetch sales: {}", e))?;
 
@@ -3183,8 +3230,8 @@ fn get_sale(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Sa
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
                 additional_cost: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale: {}", e))?;
@@ -3205,7 +3252,7 @@ fn get_sale(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Sa
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale items: {}", e))?;
@@ -3227,7 +3274,7 @@ fn get_sale_additional_costs(db_state: State<'_, Mutex<Option<Database>>>, sale_
                 sale_id: row_get(row, 1)?,
                 name: row_get(row, 2)?,
                 amount: row_get(row, 3)?,
-                created_at: row_get(row, 4)?,
+                created_at: row_get_string_or_datetime(row, 4)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale additional costs: {}", e))?;
@@ -3327,8 +3374,8 @@ fn update_sale(
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
                 additional_cost: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale: {}", e))?;
@@ -3405,7 +3452,7 @@ fn create_sale_item(
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale item: {}", e))?;
@@ -3436,7 +3483,7 @@ fn get_sale_items(db_state: State<'_, Mutex<Option<Database>>>, sale_id: i64) ->
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale items: {}", e))?;
@@ -3553,7 +3600,7 @@ fn update_sale_item(
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale item: {}", e))?;
@@ -3725,7 +3772,7 @@ fn create_sale_payment(
                 amount: row_get(row, 5)?,
                 base_amount: row_get(row, 6)?,
                 date: row_get(row, 7)?,
-                created_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale payment: {}", e))?;
@@ -3755,7 +3802,7 @@ fn get_sale_payments(db_state: State<'_, Mutex<Option<Database>>>, sale_id: i64)
                 amount: row_get(row, 5)?,
                 base_amount: row_get(row, 6)?,
                 date: row_get(row, 7)?,
-                created_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale payments: {}", e))?;
@@ -3912,8 +3959,8 @@ fn create_service(
                 total_amount: row_get(row, 6)?,
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service: {}", e))?;
@@ -3990,8 +4037,8 @@ fn get_services(
                 total_amount: row_get(row, 6)?,
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch services: {}", e))?;
@@ -4025,8 +4072,8 @@ fn get_service(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<
                 total_amount: row_get(row, 6)?,
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service: {}", e))?;
@@ -4043,7 +4090,7 @@ fn get_service(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<
                 price: row_get(row, 3)?,
                 quantity: row_get(row, 4)?,
                 total: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service items: {}", e))?;
@@ -4116,8 +4163,8 @@ fn update_service(
                 total_amount: row_get(row, 6)?,
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service: {}", e))?;
@@ -4158,7 +4205,7 @@ fn get_service_items(db_state: State<'_, Mutex<Option<Database>>>, service_id: i
                 price: row_get(row, 3)?,
                 quantity: row_get(row, 4)?,
                 total: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service items: {}", e))?;
@@ -4203,7 +4250,7 @@ fn create_service_item(
             price: row_get(row, 3)?,
             quantity: row_get(row, 4)?,
             total: row_get(row, 5)?,
-            created_at: row_get(row, 6)?,
+            created_at: row_get_string_or_datetime(row, 6)?,
         })
     }).map_err(|e| format!("Failed to fetch service item: {}", e))?;
 
@@ -4246,7 +4293,7 @@ fn update_service_item(
             price: row_get(row, 3)?,
             quantity: row_get(row, 4)?,
             total: row_get(row, 5)?,
-            created_at: row_get(row, 6)?,
+            created_at: row_get_string_or_datetime(row, 6)?,
         })
     }).map_err(|e| format!("Failed to fetch service item: {}", e))?;
 
@@ -4368,7 +4415,7 @@ fn create_service_payment(
                 amount: row_get(row, 5)?,
                 base_amount: row_get(row, 6)?,
                 date: row_get(row, 7)?,
-                created_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service payment: {}", e))?;
@@ -4398,7 +4445,7 @@ fn get_service_payments(db_state: State<'_, Mutex<Option<Database>>>, service_id
                 amount: row_get(row, 5)?,
                 base_amount: row_get(row, 6)?,
                 date: row_get(row, 7)?,
-                created_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch service payments: {}", e))?;
@@ -4473,8 +4520,8 @@ fn create_expense_type(
             Ok(ExpenseType {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense type: {}", e))?;
@@ -4498,8 +4545,8 @@ fn get_expense_types(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Vec
             Ok(ExpenseType {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense types: {}", e))?;
@@ -4529,8 +4576,8 @@ fn update_expense_type(
             Ok(ExpenseType {
                 id: row_get(row, 0)?,
                 name: row_get(row, 1)?,
-                created_at: row_get(row, 2)?,
-                updated_at: row_get(row, 3)?,
+                created_at: row_get_string_or_datetime(row, 2)?,
+                updated_at: row_get_string_or_datetime(row, 3)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense type: {}", e))?;
@@ -4626,8 +4673,8 @@ fn create_expense(
                 date: row_get(row, 6)?,
                 bill_no: row_get(row, 7)?,
                 description: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense: {}", e))?;
@@ -4707,8 +4754,8 @@ fn get_expenses(
                 date: row_get(row, 6)?,
                 bill_no: row_get(row, 7)?,
                 description: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expenses: {}", e))?;
@@ -4743,8 +4790,8 @@ fn get_expense(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<
                 date: row_get(row, 6)?,
                 bill_no: row_get(row, 7)?,
                 description: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense: {}", e))?;
@@ -4799,8 +4846,8 @@ fn update_expense(
                 date: row_get(row, 6)?,
                 bill_no: row_get(row, 7)?,
                 description: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
-                updated_at: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+                updated_at: row_get_string_or_datetime(row, 10)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense: {}", e))?;
@@ -4906,8 +4953,8 @@ fn create_employee(
                 base_salary: row_get::<Option<f64>>(row, 7)?,
                 photo_path: row_get::<Option<String>>(row, 8)?,
                 notes: row_get::<Option<String>>(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch employee: {}", e))?;
@@ -4991,8 +5038,8 @@ fn get_employees(
                 base_salary: row_get::<Option<f64>>(row, 7)?,
                 photo_path: row_get::<Option<String>>(row, 8)?,
                 notes: row_get::<Option<String>>(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch employees: {}", e))?;
@@ -5031,8 +5078,8 @@ fn get_employee(
                 base_salary: row_get::<Option<f64>>(row, 7)?,
                 photo_path: row_get::<Option<String>>(row, 8)?,
                 notes: row_get::<Option<String>>(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch employee: {}", e))?;
@@ -5099,8 +5146,8 @@ fn update_employee(
                 base_salary: row_get::<Option<f64>>(row, 7)?,
                 photo_path: row_get::<Option<String>>(row, 8)?,
                 notes: row_get::<Option<String>>(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch employee: {}", e))?;
@@ -5190,8 +5237,8 @@ fn create_salary(
                 amount: row_get(row, 4)?,
                 deductions: row_get(row, 5)?,
                 notes: row_get::<Option<String>>(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch salary: {}", e))?;
@@ -5269,8 +5316,8 @@ fn get_salaries(
                 amount: row_get(row, 4)?,
                 deductions: row_get(row, 5)?,
                 notes: row_get::<Option<String>>(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch salaries: {}", e))?;
@@ -5306,8 +5353,8 @@ fn get_salaries_by_employee(
                 amount: row_get(row, 4)?,
                 deductions: row_get(row, 5)?,
                 notes: row_get::<Option<String>>(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch salaries: {}", e))?;
@@ -5335,8 +5382,8 @@ fn get_salary(
                 amount: row_get(row, 4)?,
                 deductions: row_get(row, 5)?,
                 notes: row_get::<Option<String>>(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch salary: {}", e))?;
@@ -5390,8 +5437,8 @@ fn update_salary(
                 amount: row_get(row, 4)?,
                 deductions: row_get(row, 5)?,
                 notes: row_get::<Option<String>>(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch salary: {}", e))?;
@@ -5486,8 +5533,8 @@ fn create_deduction(
                 currency: row_get(row, 4)?,
                 rate: row_get(row, 5)?,
                 amount: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch deduction: {}", e))?;
@@ -5565,8 +5612,8 @@ fn get_deductions(
                 currency: row_get(row, 4)?,
                 rate: row_get(row, 5)?,
                 amount: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch deductions: {}", e))?;
@@ -5602,8 +5649,8 @@ fn get_deductions_by_employee(
                 currency: row_get(row, 4)?,
                 rate: row_get(row, 5)?,
                 amount: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch deductions: {}", e))?;
@@ -5637,8 +5684,8 @@ fn get_deductions_by_employee_year_month(
                 currency: row_get(row, 4)?,
                 rate: row_get(row, 5)?,
                 amount: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch deductions: {}", e))?;
@@ -5666,8 +5713,8 @@ fn get_deduction(
                 currency: row_get(row, 4)?,
                 rate: row_get(row, 5)?,
                 amount: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch deduction: {}", e))?;
@@ -5712,8 +5759,8 @@ fn update_deduction(
                 currency: row_get(row, 4)?,
                 rate: row_get(row, 5)?,
                 amount: row_get(row, 6)?,
-                created_at: row_get(row, 7)?,
-                updated_at: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch deduction: {}", e))?;
@@ -5779,8 +5826,8 @@ fn get_company_settings(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
                 phone: row_get(row, 3)?,
                 address: row_get(row, 4)?,
                 font: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch company settings: {}", e))?;
@@ -5843,8 +5890,8 @@ fn update_company_settings(
                 phone: row_get(row, 3)?,
                 address: row_get(row, 4)?,
                 font: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch updated company settings: {}", e))?;
@@ -6001,8 +6048,8 @@ fn create_coa_category(
                 code: row_get(row, 3)?,
                 category_type: row_get(row, 4)?,
                 level: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch COA category: {}", e))?;
@@ -6030,8 +6077,8 @@ fn get_coa_categories(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Ve
                 code: row_get(row, 3)?,
                 category_type: row_get(row, 4)?,
                 level: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch COA categories: {}", e))?;
@@ -6095,8 +6142,8 @@ fn update_coa_category(
                 code: row_get(row, 3)?,
                 category_type: row_get(row, 4)?,
                 level: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch COA category: {}", e))?;
@@ -6404,8 +6451,8 @@ fn create_account(
                 current_balance: row_get(row, 7)?,
                 is_active: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch account: {}", e))?;
@@ -6437,8 +6484,8 @@ fn get_accounts(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Vec<Acco
                 current_balance: row_get(row, 7)?,
                 is_active: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch accounts: {}", e))?;
@@ -6466,8 +6513,8 @@ fn get_account(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<
                 current_balance: row_get(row, 7)?,
                 is_active: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch account: {}", e))?;
@@ -6538,8 +6585,8 @@ fn update_account(
                 current_balance: row_get(row, 7)?,
                 is_active: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch account: {}", e))?;
@@ -6705,8 +6752,8 @@ fn deposit_account(
                 transaction_date: row_get(row, 7)?,
                 is_full: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch transaction: {}", e))?;
@@ -6820,8 +6867,8 @@ fn withdraw_account(
                 transaction_date: row_get(row, 7)?,
                 is_full: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch transaction: {}", e))?;
@@ -6856,8 +6903,8 @@ fn get_account_transactions(
                 transaction_date: row_get(row, 7)?,
                 is_full: row_get::<i64>(row, 8)? != 0,
                 notes: row_get(row, 9)?,
-                created_at: row_get(row, 10)?,
-                updated_at: row_get(row, 11)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch transactions: {}", e))?;
@@ -6902,7 +6949,7 @@ fn get_all_account_balances(
                 account_id: row_get(row, 1)?,
                 currency_id: row_get(row, 2)?,
                 balance: row_get(row, 3)?,
-                updated_at: row_get(row, 4)?,
+                updated_at: row_get_string_or_datetime(row, 4)?,
             })
         })
         .map_err(|e| format!("Failed to fetch account balances: {}", e))?;
@@ -7101,8 +7148,8 @@ fn create_journal_entry(
                 description: row_get(row, 3)?,
                 reference_type: row_get(row, 4)?,
                 reference_id: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch journal entry: {}", e))?;
@@ -7163,8 +7210,8 @@ fn get_journal_entries(
                 description: row_get(row, 3)?,
                 reference_type: row_get(row, 4)?,
                 reference_id: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch journal entries: {}", e))?;
@@ -7200,8 +7247,8 @@ fn get_journal_entry(
                 description: row_get(row, 3)?,
                 reference_type: row_get(row, 4)?,
                 reference_id: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch journal entry: {}", e))?;
@@ -7222,7 +7269,7 @@ fn get_journal_entry(
                 exchange_rate: row_get(row, 6)?,
                 base_amount: row_get(row, 7)?,
                 description: row_get(row, 8)?,
-                created_at: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch journal entry lines: {}", e))?;
@@ -7355,8 +7402,8 @@ fn update_journal_entry(
                 description: row_get(row, 3)?,
                 reference_type: row_get(row, 4)?,
                 reference_id: row_get(row, 5)?,
-                created_at: row_get(row, 6)?,
-                updated_at: row_get(row, 7)?,
+                created_at: row_get_string_or_datetime(row, 6)?,
+                updated_at: row_get_string_or_datetime(row, 7)?,
             })
         })
         .map_err(|e| format!("Failed to fetch updated journal entry: {}", e))?;
@@ -7399,7 +7446,7 @@ fn create_exchange_rate(
                 to_currency_id: row_get(row, 2)?,
                 rate: row_get(row, 3)?,
                 date: row_get(row, 4)?,
-                created_at: row_get(row, 5)?,
+                created_at: row_get_string_or_datetime(row, 5)?,
             })
         })
         .map_err(|e| format!("Failed to fetch exchange rate: {}", e))?;
@@ -7458,7 +7505,7 @@ fn get_exchange_rate_history(
                 to_currency_id: row_get(row, 2)?,
                 rate: row_get(row, 3)?,
                 date: row_get(row, 4)?,
-                created_at: row_get(row, 5)?,
+                created_at: row_get_string_or_datetime(row, 5)?,
             })
         })
         .map_err(|e| format!("Failed to fetch exchange rate history: {}", e))?;
