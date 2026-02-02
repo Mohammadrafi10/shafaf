@@ -1759,8 +1759,9 @@ fn get_products(
     if let Some(s) = search {
         if !s.trim().is_empty() {
             let search_term = format!("%{}%", s);
-            where_clause = "WHERE (name LIKE ?)".to_string();
+            where_clause = "WHERE (name LIKE ? OR bar_code LIKE ?)".to_string();
             params.push(serde_json::Value::String(search_term.clone()));
+            params.push(serde_json::Value::String(search_term));
         }
     }
 

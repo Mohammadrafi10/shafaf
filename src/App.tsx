@@ -798,40 +798,15 @@ function App() {
       </motion.header>
 
       <main className="relative max-w-7xl mx-auto px-6 py-8 z-10">
-        {/* Welcome Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
+        {/* Compact dashboard greeting */}
+        <motion.p
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="mb-12 relative"
+          transition={{ duration: 0.3 }}
+          className="text-gray-600 dark:text-gray-400 text-sm mb-6"
         >
-          <div className="relative inline-block">
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-              className="absolute -inset-4 bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 rounded-3xl blur-2xl opacity-20 dark:opacity-30"
-            ></motion.div>
-            <div className="relative bg-white/60 dark:bg-gray-900/60 backdrop-blur-xl rounded-3xl p-8 border border-purple-200/50 dark:border-purple-800/30 shadow-2xl">
-              <motion.h2 
-                className="text-5xl font-extrabold bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 bg-clip-text text-transparent mb-3"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3 }}
-              >
-                خوش آمدید، {user.username}! 👋
-              </motion.h2>
-              <motion.p 
-                className="text-gray-700 dark:text-gray-300 text-xl font-medium"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 }}
-              >
-                به پنل مدیریت مالی شفاف خوش آمدید. از منوی زیر بخش مورد نظر را انتخاب کنید.
-              </motion.p>
-            </div>
-          </div>
-        </motion.div>
+          خوش آمدید، <span className="font-semibold text-gray-800 dark:text-gray-200">{user.username}</span>
+        </motion.p>
 
         {/* Quick Stats */}
         <motion.div
