@@ -12,6 +12,8 @@ import {
   generateProductReport,
   generateCustomerReport,
   generateSupplierReport,
+  generateReceivablesReport,
+  generatePayablesReport,
   generateProfitReport,
   type ReportData,
 } from "../utils/report";
@@ -31,6 +33,8 @@ type ReportType =
   | "products"
   | "customers"
   | "suppliers"
+  | "receivables"
+  | "payables"
   | "profit";
 
 const REPORT_TYPES: { value: ReportType; label: string }[] = [
@@ -42,6 +46,8 @@ const REPORT_TYPES: { value: ReportType; label: string }[] = [
   { value: "products", label: "گزارش محصولات" },
   { value: "customers", label: "گزارش مشتریان" },
   { value: "suppliers", label: "گزارش تمویل‌کنندگان" },
+  { value: "receivables", label: "لیست مطالبات (مشتریان)" },
+  { value: "payables", label: "لیست بدهی‌ها (تمویل‌کنندگان)" },
   { value: "profit", label: "گزارش سود" },
 ];
 
@@ -154,6 +160,12 @@ export default function Report({ onBack }: ReportProps) {
           break;
         case "suppliers":
           data = await generateSupplierReport(from, to);
+          break;
+        case "receivables":
+          data = await generateReceivablesReport(from, to);
+          break;
+        case "payables":
+          data = await generatePayablesReport(from, to);
           break;
         case "profit":
           data = await generateProfitReport(from, to, {

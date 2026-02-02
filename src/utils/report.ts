@@ -935,6 +935,161 @@ export async function generateSupplierReport(
   };
 }
 
+/**
+ * Generate Receivables Report (Customers who owe us) – balance as of toDate.
+ * Lists customers with total_remaining > 0 (total sales - total paid).
+ */
+export async function generateReceivablesReport(
+  fromDate: string,
+  toDate: string
+): Promise<ReportData> {
+  const to = toDate;
+
+  const receivablesQuery = `
+    SELECT 
+      c.id,
+      c.full_name,
+      COALESCE(SUM(s.base_amount), 0) as total_sales,
+      COALESCE(SUM(s.paid_amount), 0) as total_paid,
+      COALESCE(SUM(s.base_amount - s.paid_amount), 0) as total_remaining
+    FROM customers c
+    LEFT JOIN sales s ON c.id = s.customer_id AND s.date <= ?
+    GROUP BY c.id, c.full_name
+    HAVING total_remaining > 0
+    ORDER BY total_remaining DESC
+  `;
+
+  const receivablesResult = await queryDatabase(receivablesQuery, [to]);
+  const receivables = resultToObjects(receivablesResult);
+
+  const totalReceivables = receivables.reduce((sum: number, r: any) => sum + (r.total_remaining || 0), 0);
+  const totalSales = receivables.reduce((sum: number, r: any) => sum + (r.total_sales || 0), 0);
+  const totalPaid = receivables.reduce((sum: number, r: any) => sum + (r.total_paid || 0), 0);
+
+  const formatted = receivables.map((row: any) => ({
+    ...row,
+    total_sales_formatted: formatPersianNumber(row.total_sales || 0),
+    total_paid_formatted: formatPersianNumber(row.total_paid || 0),
+    total_remaining_formatted: formatPersianNumber(row.total_remaining || 0),
+  }));
+
+  return {
+    title: "لیست مطالبات (مشتریان)",
+    type: "receivables",
+    dateRange: { from: fromDate, to },
+    summary: {
+      totalCount: receivables.length,
+      totalSales,
+      totalPaid,
+      totalRemaining: totalReceivables,
+    },
+    sections: [
+      {
+        title: "خلاصه",
+        type: "summary",
+        data: [
+          { label: "تعداد مشتریان با مانده", value: formatPersianNumber(receivables.length) },
+          { label: "مجموع فروشات", value: formatPersianNumber(totalSales) },
+          { label: "مجموع پرداخت شده", value: formatPersianNumber(totalPaid) },
+          { label: "مجموع مطالبات (باقیمانده)", value: formatPersianNumber(totalReceivables) },
+        ],
+      },
+      {
+        title: "لیست مطالبات (مشتریان)",
+        type: "table",
+        columns: [
+          { key: "full_name", label: "نام مشتری" },
+          { key: "total_sales_formatted", label: "مجموع فروشات" },
+          { key: "total_paid_formatted", label: "پرداخت شده" },
+          { key: "total_remaining_formatted", label: "باقیمانده (مطالبه)" },
+        ],
+        data: formatted,
+      },
+    ],
+  };
+}
+
+/**
+ * Generate Payables Report (Vendors we owe) – balance as of toDate.
+ * Lists suppliers with total_remaining > 0 (total purchases - total paid).
+ */
+export async function generatePayablesReport(
+  fromDate: string,
+  toDate: string
+): Promise<ReportData> {
+  const to = toDate;
+
+  const payablesQuery = `
+    SELECT 
+      sup.id,
+      sup.full_name,
+      COALESCE(SUM(p.total_amount), 0) as total_purchases,
+      COALESCE(paid.total_paid, 0) as total_paid,
+      COALESCE(SUM(p.total_amount), 0) - COALESCE(paid.total_paid, 0) as total_remaining
+    FROM suppliers sup
+    LEFT JOIN purchases p ON sup.id = p.supplier_id AND p.date <= ?
+    LEFT JOIN (
+      SELECT p2.supplier_id, SUM(pp.total) as total_paid
+      FROM purchases p2
+      JOIN purchase_payments pp ON pp.purchase_id = p2.id
+      WHERE p2.date <= ?
+      GROUP BY p2.supplier_id
+    ) paid ON paid.supplier_id = sup.id
+    GROUP BY sup.id, sup.full_name, paid.total_paid
+    HAVING total_remaining > 0
+    ORDER BY total_remaining DESC
+  `;
+
+  const payablesResult = await queryDatabase(payablesQuery, [to, to]);
+  const payables = resultToObjects(payablesResult);
+
+  const totalPayables = payables.reduce((sum: number, p: any) => sum + (p.total_remaining || 0), 0);
+  const totalPurchases = payables.reduce((sum: number, p: any) => sum + (p.total_purchases || 0), 0);
+  const totalPaid = payables.reduce((sum: number, p: any) => sum + (p.total_paid || 0), 0);
+
+  const formatted = payables.map((row: any) => ({
+    ...row,
+    total_purchases_formatted: formatPersianNumber(row.total_purchases || 0),
+    total_paid_formatted: formatPersianNumber(row.total_paid || 0),
+    total_remaining_formatted: formatPersianNumber(row.total_remaining || 0),
+  }));
+
+  return {
+    title: "لیست بدهی‌ها (تمویل‌کنندگان)",
+    type: "payables",
+    dateRange: { from: fromDate, to },
+    summary: {
+      totalCount: payables.length,
+      totalPurchases,
+      totalPaid,
+      totalRemaining: totalPayables,
+    },
+    sections: [
+      {
+        title: "خلاصه",
+        type: "summary",
+        data: [
+          { label: "تعداد تمویل‌کنندگان با مانده", value: formatPersianNumber(payables.length) },
+          { label: "مجموع خریداری‌ها", value: formatPersianNumber(totalPurchases) },
+          { label: "مجموع پرداخت شده", value: formatPersianNumber(totalPaid) },
+          { label: "مجموع بدهی‌ها (باقیمانده)", value: formatPersianNumber(totalPayables) },
+        ],
+      },
+      {
+        title: "لیست بدهی‌ها (تمویل‌کنندگان)",
+        type: "table",
+        columns: [
+          { key: "full_name", label: "نام تمویل‌کننده" },
+          { key: "total_purchases_formatted", label: "مجموع خریداری‌ها" },
+          { key: "total_paid_formatted", label: "پرداخت شده" },
+          { key: "total_remaining_formatted", label: "باقیمانده (بدهی)" },
+        ],
+        data: formatted,
+      },
+    ],
+  };
+}
+
 export type ProfitReportOptions = {
   includeExpenses?: boolean;
   groupBy?: "none" | "product" | "month";
