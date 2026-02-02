@@ -2915,6 +2915,10 @@ pub struct Sale {
     pub base_amount: f64,
     pub paid_amount: f64,
     pub additional_cost: f64,
+    pub order_discount_type: Option<String>,
+    pub order_discount_value: f64,
+    pub order_discount_amount: f64,
+    pub discount_code_id: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -2931,6 +2935,8 @@ pub struct SaleItem {
     pub total: f64,
     pub purchase_item_id: Option<i64>,
     pub sale_type: Option<String>,
+    pub discount_type: Option<String>,
+    pub discount_value: f64,
     pub created_at: String,
 }
 
@@ -2977,9 +2983,39 @@ pub struct SaleAdditionalCost {
 /// Initialize sales table (schema from db.sql on first open).
 #[tauri::command]
 fn init_sales_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+    // Migration: add discount columns for existing DBs
+    let _ = db.execute("ALTER TABLE sales ADD COLUMN order_discount_type TEXT", ());
+    let _ = db.execute("ALTER TABLE sales ADD COLUMN order_discount_value DOUBLE NOT NULL DEFAULT 0", ());
+    let _ = db.execute("ALTER TABLE sales ADD COLUMN order_discount_amount DOUBLE NOT NULL DEFAULT 0", ());
+    let _ = db.execute("ALTER TABLE sales ADD COLUMN discount_code_id BIGINT", ());
+    let _ = db.execute("ALTER TABLE sale_items ADD COLUMN discount_type TEXT", ());
+    let _ = db.execute("ALTER TABLE sale_items ADD COLUMN discount_value DOUBLE NOT NULL DEFAULT 0", ());
+    let _ = db.execute("ALTER TABLE sale_service_items ADD COLUMN discount_type TEXT", ());
+    let _ = db.execute("ALTER TABLE sale_service_items ADD COLUMN discount_value DOUBLE NOT NULL DEFAULT 0", ());
     Ok("OK".to_string())
+}
+
+/// Round to 2 decimal places.
+fn round2(x: f64) -> f64 {
+    (x * 100.0).round() / 100.0
+}
+
+/// Compute line or order discount amount. type_ = "percent" | "fixed", value = percent 0-100 or fixed amount.
+fn compute_discount_amount(subtotal: f64, discount_type: Option<&String>, discount_value: f64) -> f64 {
+    if subtotal <= 0.0 {
+        return 0.0;
+    }
+    let typ = discount_type.as_ref().map(|s| s.as_str());
+    match typ {
+        Some("percent") => {
+            let pct = discount_value.clamp(0.0, 100.0);
+            round2(subtotal * pct / 100.0)
+        }
+        Some("fixed") => round2(discount_value.min(subtotal).max(0.0)),
+        _ => 0.0,
+    }
 }
 
 /// Create a new sale with items and optional service items
@@ -2993,8 +3029,10 @@ fn create_sale(
     exchange_rate: f64,
     paid_amount: f64,
     additional_costs: Vec<(String, f64)>, // (name, amount)
-    items: Vec<(i64, i64, f64, f64, Option<i64>, Option<String>)>, // (product_id, unit_id, per_price, amount, purchase_item_id, sale_type)
-    service_items: Vec<(i64, String, f64, f64)>, // (service_id, name, price, quantity)
+    items: Vec<(i64, i64, f64, f64, Option<i64>, Option<String>, Option<String>, f64)>, // (product_id, unit_id, per_price, amount, purchase_item_id, sale_type, discount_type, discount_value)
+    service_items: Vec<(i64, String, f64, f64, Option<String>, f64)>, // (service_id, name, price, quantity, discount_type, discount_value)
+    order_discount_type: Option<String>,
+    order_discount_value: f64,
 ) -> Result<Sale, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
@@ -3003,16 +3041,29 @@ fn create_sale(
         return Err("Sale must have at least one product item or service item".to_string());
     }
 
-    // Calculate total amount from product items + service items + additional costs
-    let items_total: f64 = items.iter().map(|(_, _, per_price, amount, _, _)| per_price * amount).sum();
-    let service_items_total: f64 = service_items.iter().map(|(_, _, price, qty)| price * qty).sum();
+    // Compute line totals with line-level discount
+    let mut items_line_totals: Vec<f64> = Vec::with_capacity(items.len());
+    for (_, _, per_price, amount, _, _, discount_type, discount_value) in &items {
+        let line_subtotal = per_price * amount;
+        let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), *discount_value);
+        items_line_totals.push(round2(line_subtotal - disc));
+    }
+    let mut service_line_totals: Vec<f64> = Vec::with_capacity(service_items.len());
+    for (_, _, price, qty, discount_type, discount_value) in &service_items {
+        let line_subtotal = price * qty;
+        let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), *discount_value);
+        service_line_totals.push(round2(line_subtotal - disc));
+    }
+
+    let subtotal: f64 = round2(items_line_totals.iter().sum::<f64>() + service_line_totals.iter().sum::<f64>());
+    let order_discount_amount = compute_discount_amount(subtotal, order_discount_type.as_ref(), order_discount_value);
     let additional_costs_total: f64 = additional_costs.iter().map(|(_, amount)| amount).sum();
-    let total_amount = items_total + service_items_total + additional_costs_total;
+    let total_amount = round2(subtotal - order_discount_amount + additional_costs_total);
     let base_amount = total_amount * exchange_rate;
 
-    // Insert sale (keep additional_cost column for backward compatibility - sum of all additional costs)
+    // Insert sale with discount columns
     let notes_str: Option<&str> = notes.as_ref().map(|s| s.as_str());
-    let insert_sql = "INSERT INTO sales (customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    let insert_sql = "INSERT INTO sales (customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, order_discount_type, order_discount_value, order_discount_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     db.execute(insert_sql, (
         &customer_id,
         &date,
@@ -3023,6 +3074,9 @@ fn create_sale(
         &base_amount,
         &paid_amount,
         &additional_costs_total,
+        &order_discount_type,
+        &order_discount_value,
+        &order_discount_amount,
     ))
         .map_err(|e| format!("Failed to insert sale: {}", e))?;
 
@@ -3049,7 +3103,6 @@ fn create_sale(
     });
 
     // Create journal entry for sale: Debit Accounts Receivable, Credit Sales Revenue
-    // Note: This assumes accounts exist for AR and Sales Revenue - in production, these should be configurable
     let ar_account_sql = "SELECT id FROM accounts WHERE account_type = 'Asset' AND name LIKE '%Receivable%' LIMIT 1";
     let ar_accounts = db.query(ar_account_sql, (), |row| Ok(row_get::<i64>(row, 0)?))
         .ok()
@@ -3060,7 +3113,6 @@ fn create_sale(
         .ok()
         .and_then(|v| v.first().copied());
 
-    // Only create journal entry if accounts exist
     if let (Some(ar_account), Some(revenue_account)) = (ar_accounts, revenue_accounts) {
         let sale_currency_id = currency_id.unwrap_or(base_currency_id);
         let journal_lines = vec![
@@ -3086,10 +3138,10 @@ fn create_sale(
             .map_err(|e| format!("Failed to insert initial payment: {}", e))?;
     }
 
-    // Insert sale items
-    for (product_id, unit_id, per_price, amount, purchase_item_id, sale_type) in items {
-        let total = per_price * amount;
-        let insert_item_sql = "INSERT INTO sale_items (sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    // Insert sale items (with discount_type, discount_value, total = line total after discount)
+    for (idx, (product_id, unit_id, per_price, amount, purchase_item_id, sale_type, discount_type, discount_value)) in items.into_iter().enumerate() {
+        let total = *items_line_totals.get(idx).unwrap_or(&(per_price * amount));
+        let insert_item_sql = "INSERT INTO sale_items (sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         db.execute(insert_item_sql, (
             sale_id,
             &product_id,
@@ -3099,14 +3151,16 @@ fn create_sale(
             &total,
             &purchase_item_id,
             &sale_type,
+            &discount_type,
+            &discount_value,
         ))
             .map_err(|e| format!("Failed to insert sale item: {}", e))?;
     }
 
-    // Insert sale service items
-    for (service_id, name, price, quantity) in service_items {
-        let total = price * quantity;
-        let insert_ssi_sql = "INSERT INTO sale_service_items (sale_id, service_id, name, price, quantity, total) VALUES (?, ?, ?, ?, ?, ?)";
+    // Insert sale service items (with discount_type, discount_value)
+    for (idx, (service_id, name, price, quantity, discount_type, discount_value)) in service_items.into_iter().enumerate() {
+        let total = *service_line_totals.get(idx).unwrap_or(&(price * quantity));
+        let insert_ssi_sql = "INSERT INTO sale_service_items (sale_id, service_id, name, price, quantity, total, discount_type, discount_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         db.execute(insert_ssi_sql, (
             sale_id,
             &service_id,
@@ -3114,6 +3168,8 @@ fn create_sale(
             &price,
             &quantity,
             &total,
+            &discount_type,
+            &discount_value,
         ))
             .map_err(|e| format!("Failed to insert sale service item: {}", e))?;
     }
@@ -3129,8 +3185,8 @@ fn create_sale(
             .map_err(|e| format!("Failed to insert sale additional cost: {}", e))?;
     }
 
-    // Get the created sale
-    let sale_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, created_at, updated_at FROM sales WHERE id = ?";
+    // Get the created sale (with new columns)
+    let sale_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, order_discount_type, order_discount_value, order_discount_amount, discount_code_id, created_at, updated_at FROM sales WHERE id = ?";
     let sales = db
         .query(sale_sql, one_param(sale_id), |row| {
             Ok(Sale {
@@ -3144,8 +3200,12 @@ fn create_sale(
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
                 additional_cost: row_get(row, 9)?,
-                created_at: row_get_string_or_datetime(row, 10)?,
-                updated_at: row_get_string_or_datetime(row, 11)?,
+                order_discount_type: row_get(row, 10)?,
+                order_discount_value: row_get(row, 11)?,
+                order_discount_amount: row_get(row, 12)?,
+                discount_code_id: row_get(row, 13)?,
+                created_at: row_get_string_or_datetime(row, 14)?,
+                updated_at: row_get_string_or_datetime(row, 15)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale: {}", e))?;
@@ -3207,7 +3267,7 @@ fn get_sales(
         "ORDER BY s.date DESC, s.created_at DESC".to_string()
     };
 
-    let sql = format!("SELECT s.id, s.customer_id, s.date, s.notes, s.currency_id, s.exchange_rate, s.total_amount, s.base_amount, s.paid_amount, s.additional_cost, s.created_at, s.updated_at FROM sales s {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
+    let sql = format!("SELECT s.id, s.customer_id, s.date, s.notes, s.currency_id, s.exchange_rate, s.total_amount, s.base_amount, s.paid_amount, s.additional_cost, s.order_discount_type, s.order_discount_value, s.order_discount_amount, s.discount_code_id, s.created_at, s.updated_at FROM sales s {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
     
     params.push(serde_json::Value::Number(serde_json::Number::from(per_page)));
     params.push(serde_json::Value::Number(serde_json::Number::from(offset)));
@@ -3225,8 +3285,12 @@ fn get_sales(
             base_amount: row_get(row, 7)?,
             paid_amount: row_get(row, 8)?,
             additional_cost: row_get(row, 9)?,
-            created_at: row_get_string_or_datetime(row, 10)?,
-            updated_at: row_get_string_or_datetime(row, 11)?,
+            order_discount_type: row_get(row, 10)?,
+            order_discount_value: row_get(row, 11)?,
+            order_discount_amount: row_get(row, 12)?,
+            discount_code_id: row_get(row, 13)?,
+            created_at: row_get_string_or_datetime(row, 14)?,
+            updated_at: row_get_string_or_datetime(row, 15)?,
         })
     }).map_err(|e| format!("Failed to fetch sales: {}", e))?;
 
@@ -3247,8 +3311,8 @@ fn get_sale(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Sa
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    // Get sale
-    let sale_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, created_at, updated_at FROM sales WHERE id = ?";
+    // Get sale (with discount columns)
+    let sale_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, order_discount_type, order_discount_value, order_discount_amount, discount_code_id, created_at, updated_at FROM sales WHERE id = ?";
     let sales = db
         .query(sale_sql, one_param(id), |row| {
             Ok(Sale {
@@ -3262,16 +3326,20 @@ fn get_sale(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Sa
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
                 additional_cost: row_get(row, 9)?,
-                created_at: row_get_string_or_datetime(row, 10)?,
-                updated_at: row_get_string_or_datetime(row, 11)?,
+                order_discount_type: row_get(row, 10)?,
+                order_discount_value: row_get(row, 11)?,
+                order_discount_amount: row_get(row, 12)?,
+                discount_code_id: row_get(row, 13)?,
+                created_at: row_get_string_or_datetime(row, 14)?,
+                updated_at: row_get_string_or_datetime(row, 15)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale: {}", e))?;
 
     let sale = sales.first().ok_or("Sale not found")?;
 
-    // Get sale items
-    let items_sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, created_at FROM sale_items WHERE sale_id = ?";
+    // Get sale items (with discount columns)
+    let items_sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value, created_at FROM sale_items WHERE sale_id = ?";
     let items = db
         .query(items_sql, one_param(id), |row| {
             Ok(SaleItem {
@@ -3284,13 +3352,15 @@ fn get_sale(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Sa
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
+                discount_type: row_get(row, 9)?,
+                discount_value: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale items: {}", e))?;
 
-    // Get sale service items
-    let ssi_sql = "SELECT id, sale_id, service_id, name, price, quantity, total, created_at FROM sale_service_items WHERE sale_id = ? ORDER BY id";
+    // Get sale service items (with discount columns)
+    let ssi_sql = "SELECT id, sale_id, service_id, name, price, quantity, total, discount_type, discount_value, created_at FROM sale_service_items WHERE sale_id = ? ORDER BY id";
     let service_items = db
         .query(ssi_sql, one_param(id), |row| {
             Ok(SaleServiceItem {
@@ -3301,7 +3371,9 @@ fn get_sale(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<(Sa
                 price: row_get(row, 4)?,
                 quantity: row_get(row, 5)?,
                 total: row_get(row, 6)?,
-                created_at: row_get_string_or_datetime(row, 7)?,
+                discount_type: row_get(row, 7)?,
+                discount_value: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale service items: {}", e))?;
@@ -3343,8 +3415,10 @@ fn update_sale(
     exchange_rate: f64,
     _paid_amount: f64, // Ignored, handled by payments table
     additional_costs: Vec<(String, f64)>, // (name, amount)
-    items: Vec<(i64, i64, f64, f64, Option<i64>, Option<String>)>, // (product_id, unit_id, per_price, amount, purchase_item_id, sale_type)
-    service_items: Vec<(i64, String, f64, f64)>, // (service_id, name, price, quantity)
+    items: Vec<(i64, i64, f64, f64, Option<i64>, Option<String>, Option<String>, f64)>, // (product_id, unit_id, per_price, amount, purchase_item_id, sale_type, discount_type, discount_value)
+    service_items: Vec<(i64, String, f64, f64, Option<String>, f64)>, // (service_id, name, price, quantity, discount_type, discount_value)
+    order_discount_type: Option<String>,
+    order_discount_value: f64,
 ) -> Result<Sale, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
@@ -3353,16 +3427,29 @@ fn update_sale(
         return Err("Sale must have at least one product item or service item".to_string());
     }
 
-    // Calculate total amount from items + service items + additional costs
-    let items_total: f64 = items.iter().map(|(_, _, per_price, amount, _, _)| per_price * amount).sum();
-    let service_items_total: f64 = service_items.iter().map(|(_, _, price, qty)| price * qty).sum();
+    // Compute line totals with line-level discount
+    let mut items_line_totals: Vec<f64> = Vec::with_capacity(items.len());
+    for (_, _, per_price, amount, _, _, discount_type, discount_value) in &items {
+        let line_subtotal = per_price * amount;
+        let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), *discount_value);
+        items_line_totals.push(round2(line_subtotal - disc));
+    }
+    let mut service_line_totals: Vec<f64> = Vec::with_capacity(service_items.len());
+    for (_, _, price, qty, discount_type, discount_value) in &service_items {
+        let line_subtotal = price * qty;
+        let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), *discount_value);
+        service_line_totals.push(round2(line_subtotal - disc));
+    }
+
+    let subtotal: f64 = round2(items_line_totals.iter().sum::<f64>() + service_line_totals.iter().sum::<f64>());
+    let order_discount_amount = compute_discount_amount(subtotal, order_discount_type.as_ref(), order_discount_value);
     let additional_costs_total: f64 = additional_costs.iter().map(|(_, amount)| amount).sum();
-    let total_amount = items_total + service_items_total + additional_costs_total;
+    let total_amount = round2(subtotal - order_discount_amount + additional_costs_total);
     let base_amount = total_amount * exchange_rate;
 
-    // Update sale (excluding paid_amount, keep additional_cost column for backward compatibility)
+    // Update sale (with discount columns)
     let notes_str: Option<&str> = notes.as_ref().map(|s| s.as_str());
-    let update_sql = "UPDATE sales SET customer_id = ?, date = ?, notes = ?, currency_id = ?, exchange_rate = ?, total_amount = ?, base_amount = ?, additional_cost = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    let update_sql = "UPDATE sales SET customer_id = ?, date = ?, notes = ?, currency_id = ?, exchange_rate = ?, total_amount = ?, base_amount = ?, additional_cost = ?, order_discount_type = ?, order_discount_value = ?, order_discount_amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
     db.execute(update_sql, (
         &customer_id,
         &date,
@@ -3372,6 +3459,9 @@ fn update_sale(
         &total_amount,
         &base_amount,
         &additional_costs_total,
+        &order_discount_type,
+        &order_discount_value,
+        &order_discount_amount,
         &id,
     ))
         .map_err(|e| format!("Failed to update sale: {}", e))?;
@@ -3381,10 +3471,10 @@ fn update_sale(
     db.execute(delete_items_sql, one_param(id))
         .map_err(|e| format!("Failed to delete sale items: {}", e))?;
 
-    // Insert new items
-    for (product_id, unit_id, per_price, amount, purchase_item_id, sale_type) in items {
-        let total = per_price * amount;
-        let insert_item_sql = "INSERT INTO sale_items (sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    // Insert new items (with discount)
+    for (idx, (product_id, unit_id, per_price, amount, purchase_item_id, sale_type, discount_type, discount_value)) in items.into_iter().enumerate() {
+        let total = *items_line_totals.get(idx).unwrap_or(&(per_price * amount));
+        let insert_item_sql = "INSERT INTO sale_items (sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         db.execute(insert_item_sql, (
             &id,
             &product_id,
@@ -3394,6 +3484,8 @@ fn update_sale(
             &total,
             &purchase_item_id,
             &sale_type,
+            &discount_type,
+            &discount_value,
         ))
             .map_err(|e| format!("Failed to insert sale item: {}", e))?;
     }
@@ -3403,9 +3495,9 @@ fn update_sale(
     db.execute(delete_ssi_sql, one_param(id))
         .map_err(|e| format!("Failed to delete sale service items: {}", e))?;
 
-    for (service_id, name, price, quantity) in service_items {
-        let total = price * quantity;
-        let insert_ssi_sql = "INSERT INTO sale_service_items (sale_id, service_id, name, price, quantity, total) VALUES (?, ?, ?, ?, ?, ?)";
+    for (idx, (service_id, name, price, quantity, discount_type, discount_value)) in service_items.into_iter().enumerate() {
+        let total = *service_line_totals.get(idx).unwrap_or(&(price * quantity));
+        let insert_ssi_sql = "INSERT INTO sale_service_items (sale_id, service_id, name, price, quantity, total, discount_type, discount_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         db.execute(insert_ssi_sql, (
             &id,
             &service_id,
@@ -3413,6 +3505,8 @@ fn update_sale(
             &price,
             &quantity,
             &total,
+            &discount_type,
+            &discount_value,
         ))
             .map_err(|e| format!("Failed to insert sale service item: {}", e))?;
     }
@@ -3433,8 +3527,8 @@ fn update_sale(
             .map_err(|e| format!("Failed to insert sale additional cost: {}", e))?;
     }
 
-    // Get the updated sale
-    let sale_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, created_at, updated_at FROM sales WHERE id = ?";
+    // Get the updated sale (with new columns)
+    let sale_sql = "SELECT id, customer_id, date, notes, currency_id, exchange_rate, total_amount, base_amount, paid_amount, additional_cost, order_discount_type, order_discount_value, order_discount_amount, discount_code_id, created_at, updated_at FROM sales WHERE id = ?";
     let sales = db
         .query(sale_sql, one_param(id), |row| {
             Ok(Sale {
@@ -3448,8 +3542,12 @@ fn update_sale(
                 base_amount: row_get(row, 7)?,
                 paid_amount: row_get(row, 8)?,
                 additional_cost: row_get(row, 9)?,
-                created_at: row_get_string_or_datetime(row, 10)?,
-                updated_at: row_get_string_or_datetime(row, 11)?,
+                order_discount_type: row_get(row, 10)?,
+                order_discount_value: row_get(row, 11)?,
+                order_discount_amount: row_get(row, 12)?,
+                discount_code_id: row_get(row, 13)?,
+                created_at: row_get_string_or_datetime(row, 14)?,
+                updated_at: row_get_string_or_datetime(row, 15)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale: {}", e))?;
@@ -3488,13 +3586,17 @@ fn create_sale_item(
     amount: f64,
     purchase_item_id: Option<i64>,
     sale_type: Option<String>,
+    discount_type: Option<String>,
+    discount_value: f64,
 ) -> Result<SaleItem, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let total = per_price * amount;
+    let line_subtotal = per_price * amount;
+    let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), discount_value);
+    let total = round2(line_subtotal - disc);
 
-    let insert_sql = "INSERT INTO sale_items (sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    let insert_sql = "INSERT INTO sale_items (sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     db.execute(insert_sql, (
         &sale_id,
         &product_id,
@@ -3504,16 +3606,18 @@ fn create_sale_item(
         &total,
         &purchase_item_id,
         &sale_type,
+        &discount_type,
+        &discount_value,
     ))
         .map_err(|e| format!("Failed to insert sale item: {}", e))?;
 
-    // Update sale total (items + service items + additional_cost)
-    let update_sale_sql = "UPDATE sales SET total_amount = (SELECT COALESCE(SUM(total), 0) FROM sale_items WHERE sale_id = ?) + (SELECT COALESCE(SUM(total), 0) FROM sale_service_items WHERE sale_id = ?) + COALESCE((SELECT additional_cost FROM sales WHERE id = ?), 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
-    db.execute(update_sale_sql, (sale_id, sale_id, sale_id, sale_id))
+    // Update sale total: subtotal - order_discount_amount + additional_cost
+    let update_sale_sql = "UPDATE sales SET total_amount = (SELECT COALESCE(SUM(total), 0) FROM sale_items WHERE sale_id = ?) + (SELECT COALESCE(SUM(total), 0) FROM sale_service_items WHERE sale_id = ?) - COALESCE((SELECT order_discount_amount FROM sales WHERE id = ?), 0) + COALESCE((SELECT additional_cost FROM sales WHERE id = ?), 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    db.execute(update_sale_sql, (sale_id, sale_id, sale_id, sale_id, sale_id))
         .map_err(|e| format!("Failed to update sale total: {}", e))?;
 
-    // Get the created item
-    let item_sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, created_at FROM sale_items WHERE sale_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1";
+    // Get the created item (with discount columns)
+    let item_sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value, created_at FROM sale_items WHERE sale_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1";
     let items = db
         .query(item_sql, (sale_id, product_id), |row| {
             Ok(SaleItem {
@@ -3526,7 +3630,9 @@ fn create_sale_item(
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
+                discount_type: row_get(row, 9)?,
+                discount_value: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale item: {}", e))?;
@@ -3544,7 +3650,7 @@ fn get_sale_items(db_state: State<'_, Mutex<Option<Database>>>, sale_id: i64) ->
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, created_at FROM sale_items WHERE sale_id = ? ORDER BY id";
+    let sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value, created_at FROM sale_items WHERE sale_id = ? ORDER BY id";
     let items = db
         .query(sql, one_param(sale_id), |row| {
             Ok(SaleItem {
@@ -3557,7 +3663,9 @@ fn get_sale_items(db_state: State<'_, Mutex<Option<Database>>>, sale_id: i64) ->
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
+                discount_type: row_get(row, 9)?,
+                discount_value: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale items: {}", e))?;
@@ -3626,13 +3734,17 @@ fn update_sale_item(
     amount: f64,
     purchase_item_id: Option<i64>,
     sale_type: Option<String>,
+    discount_type: Option<String>,
+    discount_value: f64,
 ) -> Result<SaleItem, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let total = per_price * amount;
+    let line_subtotal = per_price * amount;
+    let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), discount_value);
+    let total = round2(line_subtotal - disc);
 
-    let update_sql = "UPDATE sale_items SET product_id = ?, unit_id = ?, per_price = ?, amount = ?, total = ?, purchase_item_id = ?, sale_type = ? WHERE id = ?";
+    let update_sql = "UPDATE sale_items SET product_id = ?, unit_id = ?, per_price = ?, amount = ?, total = ?, purchase_item_id = ?, sale_type = ?, discount_type = ?, discount_value = ? WHERE id = ?";
     db.execute(update_sql, (
         &product_id,
         &unit_id,
@@ -3641,6 +3753,8 @@ fn update_sale_item(
         &total,
         &purchase_item_id,
         &sale_type,
+        &discount_type,
+        &discount_value,
         &id,
     ))
         .map_err(|e| format!("Failed to update sale item: {}", e))?;
@@ -3654,14 +3768,14 @@ fn update_sale_item(
         .map_err(|e| format!("Failed to fetch sale_id: {}", e))?;
 
     if let Some(sale_id) = sale_ids.first() {
-        // Update sale total (items total + additional_cost)
-        let update_sale_sql = "UPDATE sales SET total_amount = (SELECT COALESCE(SUM(total), 0) FROM sale_items WHERE sale_id = ?) + (SELECT COALESCE(SUM(total), 0) FROM sale_service_items WHERE sale_id = ?) + COALESCE((SELECT additional_cost FROM sales WHERE id = ?), 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
-        db.execute(update_sale_sql, (sale_id, sale_id, sale_id, sale_id))
+        // Update sale total: subtotal - order_discount_amount + additional_cost
+        let update_sale_sql = "UPDATE sales SET total_amount = (SELECT COALESCE(SUM(total), 0) FROM sale_items WHERE sale_id = ?) + (SELECT COALESCE(SUM(total), 0) FROM sale_service_items WHERE sale_id = ?) - COALESCE((SELECT order_discount_amount FROM sales WHERE id = ?), 0) + COALESCE((SELECT additional_cost FROM sales WHERE id = ?), 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+        db.execute(update_sale_sql, (sale_id, sale_id, sale_id, sale_id, sale_id))
             .map_err(|e| format!("Failed to update sale total: {}", e))?;
     }
 
-    // Get the updated item
-    let item_sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, created_at FROM sale_items WHERE id = ?";
+    // Get the updated item (with discount columns)
+    let item_sql = "SELECT id, sale_id, product_id, unit_id, per_price, amount, total, purchase_item_id, sale_type, discount_type, discount_value, created_at FROM sale_items WHERE id = ?";
     let items = db
         .query(item_sql, one_param(id), |row| {
             Ok(SaleItem {
@@ -3674,7 +3788,9 @@ fn update_sale_item(
                 total: row_get(row, 6)?,
                 purchase_item_id: row_get(row, 7)?,
                 sale_type: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
+                discount_type: row_get(row, 9)?,
+                discount_value: row_get(row, 10)?,
+                created_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch sale item: {}", e))?;
@@ -3709,9 +3825,9 @@ fn delete_sale_item(
     db.execute(delete_sql, one_param(id))
         .map_err(|e| format!("Failed to delete sale item: {}", e))?;
 
-    // Update sale total (items + service items + additional_cost)
-    let update_sale_sql = "UPDATE sales SET total_amount = (SELECT COALESCE(SUM(total), 0) FROM sale_items WHERE sale_id = ?) + (SELECT COALESCE(SUM(total), 0) FROM sale_service_items WHERE sale_id = ?) + COALESCE((SELECT additional_cost FROM sales WHERE id = ?), 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
-    db.execute(update_sale_sql, (sale_id, sale_id, sale_id, sale_id))
+    // Update sale total: subtotal - order_discount_amount + additional_cost
+    let update_sale_sql = "UPDATE sales SET total_amount = (SELECT COALESCE(SUM(total), 0) FROM sale_items WHERE sale_id = ?) + (SELECT COALESCE(SUM(total), 0) FROM sale_service_items WHERE sale_id = ?) - COALESCE((SELECT order_discount_amount FROM sales WHERE id = ?), 0) + COALESCE((SELECT additional_cost FROM sales WHERE id = ?), 0), updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    db.execute(update_sale_sql, (sale_id, sale_id, sale_id, sale_id, sale_id))
         .map_err(|e| format!("Failed to update sale total: {}", e))?;
 
     Ok("Sale item deleted successfully".to_string())
@@ -3937,6 +4053,23 @@ pub struct SaleServiceItem {
     pub price: f64,
     pub quantity: f64,
     pub total: f64,
+    pub discount_type: Option<String>,
+    pub discount_value: f64,
+    pub created_at: String,
+}
+
+// SaleDiscountCode Model (for coupon/promo codes)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaleDiscountCode {
+    pub id: i64,
+    pub code: String,
+    pub type_: String,
+    pub value: f64,
+    pub min_purchase: f64,
+    pub valid_from: Option<String>,
+    pub valid_to: Option<String>,
+    pub max_uses: Option<i32>,
+    pub use_count: i32,
     pub created_at: String,
 }
 
@@ -3946,6 +4079,94 @@ fn init_services_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<S
     let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
     Ok("OK".to_string())
+}
+
+/// Initialize sale_discount_codes table (for existing DBs that don't have it).
+#[tauri::command]
+fn init_sale_discount_codes_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+    let sql = "CREATE TABLE IF NOT EXISTS sale_discount_codes (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        code VARCHAR(255) NOT NULL UNIQUE,
+        type VARCHAR(32) NOT NULL,
+        value DOUBLE NOT NULL DEFAULT 0,
+        min_purchase DOUBLE NOT NULL DEFAULT 0,
+        valid_from TEXT,
+        valid_to TEXT,
+        max_uses INT,
+        use_count INT NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )";
+    db.execute(sql, ()).map_err(|e| format!("Failed to create sale_discount_codes table: {}", e))?;
+    Ok("OK".to_string())
+}
+
+/// Validate a discount code and return applicable discount (type, value) or error. subtotal = items+services subtotal before order discount.
+#[tauri::command]
+fn validate_discount_code(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    code: String,
+    subtotal: f64,
+) -> Result<(String, f64), String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let code_upper = code.trim().to_uppercase();
+    if code_upper.is_empty() {
+        return Err("Code is required".to_string());
+    }
+
+    let sql = "SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count FROM sale_discount_codes WHERE UPPER(TRIM(code)) = ? LIMIT 1";
+    let rows: Vec<(i64, String, String, f64, f64, Option<String>, Option<String>, Option<i32>, i32)> = db
+        .query(sql, one_param(&code_upper), |row| {
+            Ok((
+                row_get(row, 0)?,
+                row_get(row, 1)?,
+                row_get(row, 2)?,
+                row_get(row, 3)?,
+                row_get(row, 4)?,
+                row_get(row, 5)?,
+                row_get(row, 6)?,
+                row_get(row, 7)?,
+                row_get(row, 8)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to lookup discount code: {}", e))?;
+
+    let (_id, _code, type_, value, min_purchase, valid_from, valid_to, max_uses, use_count) = rows
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Discount code not found".to_string())?;
+
+    if subtotal < min_purchase {
+        return Err(format!("Minimum purchase for this code is {}", min_purchase));
+    }
+
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    if let Some(ref from) = valid_from {
+        if from.as_str() > today.as_str() {
+            return Err("Discount code is not yet valid".to_string());
+        }
+    }
+    if let Some(ref to) = valid_to {
+        if to.as_str() < today.as_str() {
+            return Err("Discount code has expired".to_string());
+        }
+    }
+
+    if let Some(max) = max_uses {
+        if use_count >= max {
+            return Err("Discount code has reached maximum uses".to_string());
+        }
+    }
+
+    let discount_type = if type_.eq_ignore_ascii_case("percent") {
+        "percent".to_string()
+    } else {
+        "fixed".to_string()
+    };
+    Ok((discount_type, value))
 }
 
 /// Create a new service (catalog entry)
@@ -6638,8 +6859,8 @@ fn update_account_currency_balance_internal(
     let upsert_sql = "
         INSERT INTO account_currency_balances (account_id, currency_id, balance, updated_at)
         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(account_id, currency_id) DO UPDATE SET
-            balance = excluded.balance,
+        ON DUPLICATE KEY UPDATE
+            balance = VALUES(balance),
             updated_at = CURRENT_TIMESTAMP
     ";
     db.execute(upsert_sql, (
@@ -7384,6 +7605,8 @@ pub fn run() {
             delete_sale_payment,
             get_sale_additional_costs,
             init_services_table,
+            init_sale_discount_codes_table,
+            validate_discount_code,
             create_service,
             get_services,
             get_service,

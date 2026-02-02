@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 import {
     initSalesTable,
+    initSaleDiscountCodesTable,
     createSale,
     getSales,
     getSale,
@@ -13,6 +14,7 @@ import {
     deleteSalePayment,
     getSaleAdditionalCosts,
     getProductBatches,
+    validateDiscountCode,
     type Sale,
     type SaleItemInput,
     type SaleServiceItemInput,
@@ -105,6 +107,16 @@ const translations = {
     paymentDate: "تاریخ پرداخت",
     paymentNotes: "یادداشت",
     paymentTotal: "مجموع",
+    discount: "تخفیف",
+    discountType: "نوع تخفیف",
+    percent: "درصد",
+    fixed: "مبلغ ثابت",
+    orderDiscount: "تخفیف کل فاکتور",
+    discountCode: "کد تخفیف",
+    subtotal: "جمع جزء",
+    orderDiscountAmount: "مبلغ تخفیف",
+    totalAfterOrderDiscount: "جمع پس از تخفیف",
+    applyCode: "اعمال کد",
 };
 
 interface SalesManagementProps {
@@ -140,6 +152,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         exchange_rate: 1,
         notes: "",
         paid_amount: 0,
+        order_discount_type: "" as "" | "percent" | "fixed",
+        order_discount_value: 0,
         additional_costs: [] as Array<{ name: string; amount: number }>,
         items: [] as SaleItemInput[],
         service_items: [] as SaleServiceItemInput[],
@@ -164,6 +178,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
     });
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
     const [productBatches, setProductBatches] = useState<Record<number, ProductBatch[]>>({});
+    const [discountCodeInput, setDiscountCodeInput] = useState("");
 
     // Pagination & Search
     const [page, setPage] = useState(1);
@@ -242,6 +257,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
 
             try {
                 await initSalesTable();
+                await initSaleDiscountCodesTable();
             } catch (err) {
                 console.log("Table initialization:", err);
             }
@@ -305,6 +321,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                 exchange_rate: saleData.sale.exchange_rate || 1,
                 notes: saleData.sale.notes || "",
                 paid_amount: saleData.sale.paid_amount,
+                order_discount_type: (saleData.sale.order_discount_type as "" | "percent" | "fixed") || "",
+                order_discount_value: saleData.sale.order_discount_value ?? 0,
                 additional_costs: additionalCosts.map(cost => ({ name: cost.name, amount: cost.amount })),
                 items: saleData.items.map(item => ({
                     product_id: item.product_id,
@@ -313,12 +331,16 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     amount: item.amount,
                     purchase_item_id: item.purchase_item_id ?? null,
                     sale_type: (item.sale_type as 'retail' | 'wholesale') || 'retail',
+                    discount_type: (item.discount_type as 'percent' | 'fixed') ?? null,
+                    discount_value: item.discount_value ?? 0,
                 })),
                 service_items: (saleData.service_items || []).map(si => ({
                     service_id: si.service_id,
                     name: si.name,
                     price: si.price,
                     quantity: si.quantity,
+                    discount_type: (si.discount_type as 'percent' | 'fixed') ?? null,
+                    discount_value: si.discount_value ?? 0,
                 })),
             });
         } catch (error: any) {
@@ -427,6 +449,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                 exchange_rate: 1,
                 notes: "",
                 paid_amount: 0,
+                order_discount_type: "" as "" | "percent" | "fixed",
+                order_discount_value: 0,
                 additional_costs: [],
                 items: [],
                 service_items: [],
@@ -455,6 +479,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             exchange_rate: 1,
             notes: "",
             paid_amount: 0,
+            order_discount_type: "" as "" | "percent" | "fixed",
+            order_discount_value: 0,
             additional_costs: [],
             items: [],
             service_items: [],
@@ -476,7 +502,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             ...formData,
             items: [
                 ...formData.items,
-                { product_id: 0, unit_id: 0, per_price: 0, amount: 0, purchase_item_id: null, sale_type: 'retail' },
+                { product_id: 0, unit_id: 0, per_price: 0, amount: 0, purchase_item_id: null, sale_type: 'retail', discount_type: null, discount_value: 0 },
             ],
         });
     };
@@ -509,7 +535,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
     const addServiceItem = () => {
         setFormData({
             ...formData,
-            service_items: [...formData.service_items, { service_id: 0, name: "", price: 0, quantity: 1 }],
+            service_items: [...formData.service_items, { service_id: 0, name: "", price: 0, quantity: 1, discount_type: null, discount_value: 0 }],
         });
     };
 
@@ -520,7 +546,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         });
     };
 
-    const updateServiceItem = (index: number, field: keyof SaleServiceItemInput, value: number | string) => {
+    const updateServiceItem = (index: number, field: keyof SaleServiceItemInput, value: number | string | null) => {
         const newServiceItems = [...formData.service_items];
         newServiceItems[index] = { ...newServiceItems[index], [field]: value };
         if (field === "service_id" && typeof value === "number" && value) {
@@ -603,17 +629,47 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         setFormData({ ...formData, items: newItems });
     };
 
-    const calculateItemTotal = (item: SaleItemInput) => {
-        return item.per_price * item.amount;
+    const computeLineDiscountAmount = (subtotal: number, discountType: string | null | undefined, discountValue: number | undefined) => {
+        if (subtotal <= 0 || !discountType || discountValue == null) return 0;
+        const v = Number(discountValue) || 0;
+        if (discountType === "percent") return Math.round((subtotal * Math.min(100, Math.max(0, v)) / 100) * 100) / 100;
+        if (discountType === "fixed") return Math.round(Math.min(v, subtotal) * 100) / 100;
+        return 0;
     };
 
-    const calculateServiceItemTotal = (si: SaleServiceItemInput) => si.price * si.quantity;
+    const calculateItemTotal = (item: SaleItemInput) => {
+        const lineSubtotal = item.per_price * item.amount;
+        const disc = computeLineDiscountAmount(lineSubtotal, item.discount_type ?? null, item.discount_value ?? 0);
+        return Math.round((lineSubtotal - disc) * 100) / 100;
+    };
 
-    const calculateTotal = () => {
+    const calculateServiceItemTotal = (si: SaleServiceItemInput) => {
+        const lineSubtotal = si.price * si.quantity;
+        const disc = computeLineDiscountAmount(lineSubtotal, si.discount_type ?? null, si.discount_value ?? 0);
+        return Math.round((lineSubtotal - disc) * 100) / 100;
+    };
+
+    const calculateSubtotal = () => {
         const itemsTotal = formData.items.reduce((sum, item) => sum + calculateItemTotal(item), 0);
         const serviceItemsTotal = formData.service_items.reduce((sum, si) => sum + calculateServiceItemTotal(si), 0);
+        return Math.round((itemsTotal + serviceItemsTotal) * 100) / 100;
+    };
+
+    const calculateOrderDiscountAmount = () => {
+        const subtotal = calculateSubtotal();
+        const typ = formData.order_discount_type;
+        const val = Number(formData.order_discount_value) || 0;
+        if (!typ || val <= 0) return 0;
+        if (typ === "percent") return Math.round((subtotal * Math.min(100, val) / 100) * 100) / 100;
+        if (typ === "fixed") return Math.round(Math.min(val, subtotal) * 100) / 100;
+        return 0;
+    };
+
+    const calculateTotal = () => {
+        const subtotal = calculateSubtotal();
+        const orderDisc = calculateOrderDiscountAmount();
         const additionalCostsTotal = formData.additional_costs.reduce((sum, cost) => sum + (cost.amount || 0), 0);
-        return itemsTotal + serviceItemsTotal + additionalCostsTotal;
+        return Math.round((subtotal - orderDisc + additionalCostsTotal) * 100) / 100;
     };
 
     const calculateRemaining = () => {
@@ -657,6 +713,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
 
         try {
             setLoading(true);
+            const orderDiscountType = formData.order_discount_type && formData.order_discount_value ? (formData.order_discount_type as 'percent' | 'fixed') : null;
+            const orderDiscountValue = Number(formData.order_discount_value) || 0;
             if (editingSale) {
                 await updateSale(
                     editingSale.id,
@@ -668,13 +726,14 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     formData.paid_amount,
                     formData.additional_costs,
                     formData.items,
-                    formData.service_items
+                    formData.service_items,
+                    orderDiscountType,
+                    orderDiscountValue
                 );
                 toast.success(translations.success.updated);
             } else {
                 const initialAmount = parseFloat(initialPaymentFormData.amount) || 0;
                 const useInitialPaymentForm = initialAmount > 0 && initialPaymentFormData.currency_id;
-                // Pass paid_amount 0 when using initial payment section so backend doesn't insert a payment (we add it via createSalePayment to avoid double)
                 const paidAmountForCreate = useInitialPaymentForm ? 0 : formData.paid_amount;
                 const newSale = await createSale(
                     formData.customer_id,
@@ -685,7 +744,9 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     paidAmountForCreate,
                     formData.additional_costs,
                     formData.items,
-                    formData.service_items
+                    formData.service_items,
+                    orderDiscountType,
+                    orderDiscountValue
                 );
                 toast.success(translations.success.created);
                 if (useInitialPaymentForm) {
@@ -1278,6 +1339,36 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                             />
                                                         </div>
                                                         <div className="col-span-1">
+                                                            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                                {translations.discount}
+                                                            </label>
+                                                            <select
+                                                                value={item.discount_type || ''}
+                                                                onChange={(e) => updateItem(index, 'discount_type', e.target.value === "" ? null : (e.target.value as "percent" | "fixed"))}
+                                                                className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                                dir="rtl"
+                                                            >
+                                                                <option value="">—</option>
+                                                                <option value="percent">{translations.percent}</option>
+                                                                <option value="fixed">{translations.fixed}</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="col-span-1">
+                                                            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                                {item.discount_type === 'percent' ? '%' : translations.fixed}
+                                                            </label>
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                min="0"
+                                                                value={item.discount_value ?? ''}
+                                                                onChange={(e) => updateItem(index, 'discount_value', parseFloat(e.target.value) || 0)}
+                                                                className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                                dir="ltr"
+                                                                disabled={!item.discount_type}
+                                                            />
+                                                        </div>
+                                                        <div className="col-span-1">
                                                             <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
                                                                 {translations.total}
                                                             </div>
@@ -1386,15 +1477,39 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                                     dir="ltr"
                                                                 />
                                                             </div>
-                                                            <div className="col-span-2">
-                                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
-                                                                    {translations.total}
-                                                                </div>
+                                                            <div className="col-span-1">
+                                                                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.discount}</label>
+                                                                <select
+                                                                    value={si.discount_type || ''}
+                                                                    onChange={(e) => updateServiceItem(index, "discount_type", (e.target.value || "") as "" | "percent" | "fixed")}
+                                                                    className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                                    dir="rtl"
+                                                                >
+                                                                    <option value="">—</option>
+                                                                    <option value="percent">{translations.percent}</option>
+                                                                    <option value="fixed">{translations.fixed}</option>
+                                                                </select>
+                                                            </div>
+                                                            <div className="col-span-1">
+                                                                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">{si.discount_type === 'percent' ? '%' : translations.fixed}</label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.01"
+                                                                    min="0"
+                                                                    value={si.discount_value ?? ''}
+                                                                    onChange={(e) => updateServiceItem(index, "discount_value", parseFloat(e.target.value) || 0)}
+                                                                    className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                                    dir="ltr"
+                                                                    disabled={!si.discount_type}
+                                                                />
+                                                            </div>
+                                                            <div className="col-span-1">
+                                                                <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.total}</div>
                                                                 <div className="px-3 py-2 bg-teal-100 dark:bg-teal-900/30 rounded-lg text-sm font-bold text-teal-700 dark:text-teal-300">
                                                                     {calculateServiceItemTotal(si).toLocaleString("en-US")}
                                                                 </div>
                                                             </div>
-                                                            <div className="col-span-2">
+                                                            <div className="col-span-1">
                                                                 <motion.button
                                                                     type="button"
                                                                     whileHover={{ scale: 1.1 }}
@@ -1411,7 +1526,87 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                             </div>
                                         </div>
 
+                                        {/* Subtotal, order discount, total */}
                                         <div className="mt-4 p-4 bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 rounded-xl space-y-3">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{translations.subtotal}:</span>
+                                                <span className="text-lg font-bold text-gray-900 dark:text-white">{calculateSubtotal().toLocaleString('en-US')}</span>
+                                            </div>
+                                            <div className="grid grid-cols-12 gap-2 items-end mb-2">
+                                                <div className="col-span-4">
+                                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.discountCode}</label>
+                                                    <div className="flex gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={discountCodeInput}
+                                                            onChange={(e) => setDiscountCodeInput(e.target.value.trim().toUpperCase())}
+                                                            placeholder="کد تخفیف"
+                                                            className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                            dir="ltr"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                if (!discountCodeInput.trim()) return;
+                                                                try {
+                                                                    const subtotal = calculateSubtotal();
+                                                                    const [type, value] = await validateDiscountCode(discountCodeInput, subtotal);
+                                                                    setFormData(prev => ({ ...prev, order_discount_type: type as "percent" | "fixed", order_discount_value: value }));
+                                                                    toast.success("کد تخفیف اعمال شد");
+                                                                } catch (err: any) {
+                                                                    toast.error(err?.message || "کد تخفیف معتبر نیست");
+                                                                }
+                                                            }}
+                                                            className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium"
+                                                        >
+                                                            {translations.applyCode}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-12 gap-2 items-end">
+                                                <div className="col-span-4">
+                                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.orderDiscount}</label>
+                                                    <select
+                                                        value={formData.order_discount_type}
+                                                        onChange={(e) => setFormData({ ...formData, order_discount_type: (e.target.value || "") as "" | "percent" | "fixed" })}
+                                                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                        dir="rtl"
+                                                    >
+                                                        <option value="">—</option>
+                                                        <option value="percent">{translations.percent}</option>
+                                                        <option value="fixed">{translations.fixed}</option>
+                                                    </select>
+                                                </div>
+                                                <div className="col-span-3">
+                                                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                                                        {formData.order_discount_type === 'percent' ? '%' : translations.fixed}
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0"
+                                                        value={formData.order_discount_value || ''}
+                                                        onChange={(e) => setFormData({ ...formData, order_discount_value: parseFloat(e.target.value) || 0 })}
+                                                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                                                        dir="ltr"
+                                                        disabled={!formData.order_discount_type}
+                                                    />
+                                                </div>
+                                                <div className="col-span-5 flex justify-end items-center gap-2">
+                                                    {formData.order_discount_type && formData.order_discount_value > 0 && (
+                                                        <span className="text-sm text-amber-700 dark:text-amber-400">
+                                                            {translations.orderDiscountAmount}: {calculateOrderDiscountAmount().toLocaleString('en-US')}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {formData.order_discount_type && formData.order_discount_value > 0 && (
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="font-semibold text-gray-700 dark:text-gray-300">{translations.totalAfterOrderDiscount}:</span>
+                                                    <span className="font-bold">{(calculateSubtotal() - calculateOrderDiscountAmount()).toLocaleString('en-US')}</span>
+                                                </div>
+                                            )}
                                             <div className="flex justify-between items-center">
                                                 <span className="text-lg font-bold text-gray-900 dark:text-white">
                                                     {translations.totalAmount}:
@@ -1748,71 +1943,71 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                 <th className="px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-300">{translations.unit}</th>
                                                 <th className="px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-300">{translations.perPrice}</th>
                                                 <th className="px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-300">{translations.amount}</th>
+                                                <th className="px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-300">{translations.discount}</th>
                                                 <th className="px-6 py-4 text-sm font-bold text-gray-700 dark:text-gray-300">{translations.total}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                                            {viewingSale.items.map((item) => (
-                                                <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{getProductName(item.product_id)}</td>
-                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{getUnitName(item.unit_id)}</td>
-                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{item.per_price.toLocaleString('en-US')}</td>
-                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{item.amount.toLocaleString('en-US')}</td>
-                                                    <td className="px-6 py-4 text-sm font-bold text-purple-600 dark:text-purple-400" dir="ltr">{item.total.toLocaleString('en-US')}</td>
+                                            {viewingSale.items.map((item) => {
+                                                const lineSubtotal = item.per_price * item.amount;
+                                                const lineDisc = (item.discount_type && (item.discount_type === 'percent' || item.discount_type === 'fixed') && (item.discount_value ?? 0) > 0)
+                                                    ? (item.discount_type === 'percent' ? (lineSubtotal * Math.min(100, item.discount_value!) / 100) : Math.min(item.discount_value!, lineSubtotal))
+                                                    : 0;
+                                                return (
+                                                    <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{getProductName(item.product_id)}</td>
+                                                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{getUnitName(item.unit_id)}</td>
+                                                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{item.per_price.toLocaleString('en-US')}</td>
+                                                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{item.amount.toLocaleString('en-US')}</td>
+                                                        <td className="px-6 py-4 text-sm text-amber-600 dark:text-amber-400" dir="ltr">{lineDisc > 0 ? `-${lineDisc.toLocaleString('en-US')}` : '—'}</td>
+                                                        <td className="px-6 py-4 text-sm font-bold text-purple-600 dark:text-purple-400" dir="ltr">{item.total.toLocaleString('en-US')}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                            {(viewingSale.service_items || []).map((si) => (
+                                                <tr key={`s-${si.id}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors bg-teal-50/50 dark:bg-teal-900/10">
+                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" colSpan={2}>{si.name} ({translations.service})</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{si.price.toLocaleString('en-US')}</td>
+                                                    <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300" dir="ltr">{si.quantity.toLocaleString('en-US')}</td>
+                                                    <td className="px-6 py-4 text-sm text-amber-600 dark:text-amber-400" dir="ltr">
+                                                        {((si.discount_type === 'percent' || si.discount_type === 'fixed') && (si.discount_value ?? 0) > 0)
+                                                            ? `-${(si.discount_type === 'percent' ? (si.price * si.quantity * Math.min(100, si.discount_value!) / 100) : Math.min(si.discount_value!, si.price * si.quantity)).toLocaleString('en-US')}`
+                                                            : '—'}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm font-bold text-teal-600 dark:text-teal-400" dir="ltr">{si.total.toLocaleString('en-US')}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
                                         <tfoot>
                                             {(() => {
                                                 const itemsTotal = viewingSale.items.reduce((sum, item) => sum + item.total, 0);
-                                                const additionalCostsTotal = viewingSale.additional_costs?.reduce((sum, cost) => sum + cost.amount, 0) || 0;
+                                                const serviceItemsTotal = (viewingSale.service_items || []).reduce((sum, si) => sum + si.total, 0);
+                                                const subtotal = itemsTotal + serviceItemsTotal;
+                                                const orderDisc = viewingSale.sale.order_discount_amount ?? 0;
                                                 return (
                                                     <>
-                                                        {additionalCostsTotal > 0 && (
-                                                            <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
-                                                                <td colSpan={4} className="px-6 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">
-                                                                    <div className="flex items-center justify-end gap-2">
-                                                                        <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                                        </svg>
-                                                                        مجموع آیتم‌ها:
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-3 text-left">
-                                                                    <span className="inline-block px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-semibold rounded-lg">
-                                                                        {itemsTotal.toLocaleString('en-US')} افغانی
-                                                                    </span>
-                                                                </td>
+                                                        <tr className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+                                                            <td colSpan={5} className="px-6 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">{translations.subtotal}:</td>
+                                                            <td className="px-6 py-3 text-left font-semibold">{subtotal.toLocaleString('en-US')}</td>
+                                                        </tr>
+                                                        {orderDisc > 0 && (
+                                                            <tr className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20">
+                                                                <td colSpan={5} className="px-6 py-3 text-right font-semibold text-amber-700 dark:text-amber-400">{translations.orderDiscountAmount}:</td>
+                                                                <td className="px-6 py-3 text-left font-semibold text-amber-700 dark:text-amber-400">-{orderDisc.toLocaleString('en-US')}</td>
                                                             </tr>
                                                         )}
                                                         {viewingSale.additional_costs && viewingSale.additional_costs.length > 0 && viewingSale.additional_costs.map((cost, idx) => (
                                                             <tr key={cost.id || idx} className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
-                                                                <td colSpan={4} className="px-6 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">
-                                                                    <div className="flex items-center justify-end gap-2">
-                                                                        <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                                        </svg>
-                                                                        {cost.name}:
-                                                                    </div>
-                                                                </td>
-                                                                <td className="px-6 py-3 text-left">
-                                                                    <span className="inline-block px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-semibold rounded-lg">
-                                                                        {cost.amount.toLocaleString('en-US')} افغانی
-                                                                    </span>
-                                                                </td>
+                                                                <td colSpan={5} className="px-6 py-3 text-right font-semibold text-gray-700 dark:text-gray-300">{cost.name}:</td>
+                                                                <td className="px-6 py-3 text-left font-semibold text-green-700 dark:text-green-400">+{cost.amount.toLocaleString('en-US')}</td>
                                                             </tr>
                                                         ))}
                                                     </>
                                                 );
                                             })()}
                                             <tr className="bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/40 dark:to-blue-900/40">
-                                                <td colSpan={4} className="px-6 py-5 text-right font-bold text-gray-900 dark:text-white text-lg">
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <svg className="w-5 h-5 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                        </svg>
-                                                        {translations.totalAmount}:
-                                                    </div>
+                                                <td colSpan={5} className="px-6 py-5 text-right font-bold text-gray-900 dark:text-white text-lg">
+                                                    {translations.totalAmount}:
                                                 </td>
                                                 <td className="px-6 py-5 text-left">
                                                     <span className="inline-block px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold text-xl rounded-xl shadow-lg">

@@ -178,8 +178,12 @@ CREATE TABLE IF NOT EXISTS sales (
     base_amount DOUBLE NOT NULL DEFAULT 0,
     paid_amount DOUBLE NOT NULL DEFAULT 0,
     additional_cost DOUBLE NOT NULL DEFAULT 0,
+    order_discount_type TEXT,
+    order_discount_value DOUBLE NOT NULL DEFAULT 0,
+    order_discount_amount DOUBLE NOT NULL DEFAULT 0,
+    discount_code_id BIGINT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (customer_id) REFERENCES customers(id),
     FOREIGN KEY (currency_id) REFERENCES currencies(id)
 );
@@ -194,6 +198,8 @@ CREATE TABLE IF NOT EXISTS sale_items (
     total DOUBLE NOT NULL,
     purchase_item_id BIGINT,
     sale_type TEXT,
+    discount_type TEXT,
+    discount_value DOUBLE NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
     FOREIGN KEY (product_id) REFERENCES products(id),
@@ -244,9 +250,24 @@ CREATE TABLE IF NOT EXISTS sale_service_items (
     price DOUBLE NOT NULL,
     quantity DOUBLE NOT NULL DEFAULT 1,
     total DOUBLE NOT NULL,
+    discount_type TEXT,
+    discount_value DOUBLE NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE,
     FOREIGN KEY (service_id) REFERENCES services(id)
+);
+
+CREATE TABLE IF NOT EXISTS sale_discount_codes (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(255) NOT NULL UNIQUE,
+    type VARCHAR(32) NOT NULL,
+    value DOUBLE NOT NULL DEFAULT 0,
+    min_purchase DOUBLE NOT NULL DEFAULT 0,
+    valid_from TEXT,
+    valid_to TEXT,
+    max_uses INT,
+    use_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS expense_types (

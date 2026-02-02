@@ -11,6 +11,10 @@ export interface Sale {
     base_amount: number;
     paid_amount: number;
     remaining_amount?: number; // Calculated on client side if needed, but useful in UI
+    order_discount_type?: string | null;
+    order_discount_value?: number;
+    order_discount_amount?: number;
+    discount_code_id?: number | null;
     created_at: string;
     updated_at: string;
 }
@@ -25,6 +29,8 @@ export interface SaleItem {
     total: number;
     purchase_item_id?: number | null;
     sale_type?: string | null;
+    discount_type?: string | null;
+    discount_value?: number;
     created_at: string;
 }
 
@@ -44,6 +50,8 @@ export interface SaleServiceItem {
     price: number;
     quantity: number;
     total: number;
+    discount_type?: string | null;
+    discount_value?: number;
     created_at: string;
 }
 
@@ -73,6 +81,8 @@ export interface SaleItemInput {
     amount: number;
     purchase_item_id?: number | null;
     sale_type?: 'retail' | 'wholesale' | null;
+    discount_type?: 'percent' | 'fixed' | null;
+    discount_value?: number;
 }
 
 export interface SaleServiceItemInput {
@@ -80,6 +90,8 @@ export interface SaleServiceItemInput {
     name: string;
     price: number;
     quantity: number;
+    discount_type?: 'percent' | 'fixed' | null;
+    discount_value?: number;
 }
 
 export interface ProductBatch {
@@ -110,6 +122,24 @@ export async function initSalesTable(): Promise<string> {
 }
 
 /**
+ * Initialize the sale_discount_codes table (for existing DBs)
+ * @returns Promise with success message
+ */
+export async function initSaleDiscountCodesTable(): Promise<string> {
+    return await invoke<string>("init_sale_discount_codes_table");
+}
+
+/**
+ * Validate a discount code and return (type, value) or throw
+ * @param code Discount code
+ * @param subtotal Items + services subtotal before order discount
+ * @returns Promise with [type, value] e.g. ["percent", 10] or ["fixed", 50]
+ */
+export async function validateDiscountCode(code: string, subtotal: number): Promise<[string, number]> {
+    return await invoke<[string, number]>("validate_discount_code", { code, subtotal });
+}
+
+/**
  * Create a new sale with items and optional service items
  * @param customer_id Customer ID
  * @param date Sale date
@@ -120,6 +150,8 @@ export async function initSalesTable(): Promise<string> {
  * @param additional_costs Array of additional costs
  * @param items Array of sale items
  * @param service_items Array of sale service items
+ * @param order_discount_type 'percent' | 'fixed' | null
+ * @param order_discount_value Value for order-level discount
  * @returns Promise with Sale
  */
 export async function createSale(
@@ -131,27 +163,32 @@ export async function createSale(
     paid_amount: number,
     additional_costs: SaleAdditionalCostInput[],
     items: SaleItemInput[],
-    service_items: SaleServiceItemInput[] = []
+    service_items: SaleServiceItemInput[] = [],
+    order_discount_type: 'percent' | 'fixed' | null = null,
+    order_discount_value: number = 0
 ): Promise<Sale> {
-    // Convert items to tuple format expected by Rust: (product_id, unit_id, per_price, amount, purchase_item_id, sale_type)
-    const itemsTuple: [number, number, number, number, number | null, string | null][] = items.map(item => [
+    // Convert items to tuple: (product_id, unit_id, per_price, amount, purchase_item_id, sale_type, discount_type, discount_value)
+    const itemsTuple: [number, number, number, number, number | null, string | null, string | null, number][] = items.map(item => [
         item.product_id,
         item.unit_id,
         item.per_price,
         item.amount,
         item.purchase_item_id ?? null,
         item.sale_type ?? null,
+        (item.discount_type === 'percent' || item.discount_type === 'fixed') ? item.discount_type : null,
+        item.discount_value ?? 0,
     ]);
 
-    // Convert service_items to tuple format expected by Rust: (service_id, name, price, quantity)
-    const serviceItemsTuple: [number, string, number, number][] = service_items.map(si => [
+    // Convert service_items to tuple: (service_id, name, price, quantity, discount_type, discount_value)
+    const serviceItemsTuple: [number, string, number, number, string | null, number][] = service_items.map(si => [
         si.service_id,
         si.name,
         si.price,
         si.quantity,
+        (si.discount_type === 'percent' || si.discount_type === 'fixed') ? si.discount_type : null,
+        si.discount_value ?? 0,
     ]);
 
-    // Convert additional_costs to tuple format expected by Rust: (name, amount)
     const additionalCostsTuple: [string, number][] = additional_costs.map(cost => [
         cost.name,
         cost.amount,
@@ -166,7 +203,9 @@ export async function createSale(
         paidAmount: paid_amount,
         additionalCosts: additionalCostsTuple,
         items: itemsTuple,
-        service_items: serviceItemsTuple,
+        serviceItems: serviceItemsTuple,
+        orderDiscountType: order_discount_type,
+        orderDiscountValue: order_discount_value,
     });
 }
 
@@ -204,15 +243,16 @@ export async function getSales(
 }
 
 /**
- * Get a single sale with its items
+ * Get a single sale with its items and service items
  * @param id Sale ID
- * @returns Promise with Sale and SaleItems
+ * @returns Promise with Sale, SaleItems, and SaleServiceItems
  */
 export async function getSale(id: number): Promise<SaleWithItems> {
-    const result = await invoke<[Sale, SaleItem[]]>("get_sale", { id });
+    const result = await invoke<[Sale, SaleItem[], SaleServiceItem[]]>("get_sale", { id });
     return {
         sale: result[0],
         items: result[1],
+        service_items: result[2],
     };
 }
 
@@ -228,6 +268,8 @@ export async function getSale(id: number): Promise<SaleWithItems> {
  * @param additional_costs Array of additional costs
  * @param items Array of sale items
  * @param service_items Array of sale service items
+ * @param order_discount_type 'percent' | 'fixed' | null
+ * @param order_discount_value Value for order-level discount
  * @returns Promise with Sale
  */
 export async function updateSale(
@@ -240,27 +282,30 @@ export async function updateSale(
     paid_amount: number,
     additional_costs: SaleAdditionalCostInput[],
     items: SaleItemInput[],
-    service_items: SaleServiceItemInput[] = []
+    service_items: SaleServiceItemInput[] = [],
+    order_discount_type: 'percent' | 'fixed' | null = null,
+    order_discount_value: number = 0
 ): Promise<Sale> {
-    // Convert items to tuple format expected by Rust: (product_id, unit_id, per_price, amount, purchase_item_id, sale_type)
-    const itemsTuple: [number, number, number, number, number | null, string | null][] = items.map(item => [
+    const itemsTuple: [number, number, number, number, number | null, string | null, string | null, number][] = items.map(item => [
         item.product_id,
         item.unit_id,
         item.per_price,
         item.amount,
         item.purchase_item_id ?? null,
         item.sale_type ?? null,
+        (item.discount_type === 'percent' || item.discount_type === 'fixed') ? item.discount_type : null,
+        item.discount_value ?? 0,
     ]);
 
-    // Convert service_items to tuple format expected by Rust: (service_id, name, price, quantity)
-    const serviceItemsTuple: [number, string, number, number][] = service_items.map(si => [
+    const serviceItemsTuple: [number, string, number, number, string | null, number][] = service_items.map(si => [
         si.service_id,
         si.name,
         si.price,
         si.quantity,
+        (si.discount_type === 'percent' || si.discount_type === 'fixed') ? si.discount_type : null,
+        si.discount_value ?? 0,
     ]);
 
-    // Convert additional_costs to tuple format expected by Rust: (name, amount)
     const additionalCostsTuple: [string, number][] = additional_costs.map(cost => [
         cost.name,
         cost.amount,
@@ -276,7 +321,9 @@ export async function updateSale(
         paidAmount: paid_amount,
         additionalCosts: additionalCostsTuple,
         items: itemsTuple,
-        service_items: serviceItemsTuple,
+        serviceItems: serviceItemsTuple,
+        orderDiscountType: order_discount_type,
+        orderDiscountValue: order_discount_value,
     });
 }
 
@@ -296,6 +343,10 @@ export async function deleteSale(id: number): Promise<string> {
  * @param unit_id Unit ID
  * @param per_price Price per unit
  * @param amount Quantity
+ * @param purchase_item_id Optional purchase item ID
+ * @param sale_type 'retail' | 'wholesale' | null
+ * @param discount_type 'percent' | 'fixed' | null
+ * @param discount_value Line discount value
  * @returns Promise with SaleItem
  */
 export async function createSaleItem(
@@ -305,7 +356,9 @@ export async function createSaleItem(
     per_price: number,
     amount: number,
     purchase_item_id?: number | null,
-    sale_type?: 'retail' | 'wholesale' | null
+    sale_type?: 'retail' | 'wholesale' | null,
+    discount_type?: 'percent' | 'fixed' | null,
+    discount_value?: number
 ): Promise<SaleItem> {
     return await invoke<SaleItem>("create_sale_item", {
         saleId: sale_id,
@@ -315,6 +368,8 @@ export async function createSaleItem(
         amount,
         purchaseItemId: purchase_item_id ?? null,
         saleType: sale_type ?? null,
+        discountType: discount_type ?? null,
+        discountValue: discount_value ?? 0,
     });
 }
 
@@ -334,6 +389,10 @@ export async function getSaleItems(sale_id: number): Promise<SaleItem[]> {
  * @param unit_id Unit ID
  * @param per_price Price per unit
  * @param amount Quantity
+ * @param purchase_item_id Optional purchase item ID
+ * @param sale_type 'retail' | 'wholesale' | null
+ * @param discount_type 'percent' | 'fixed' | null
+ * @param discount_value Line discount value
  * @returns Promise with SaleItem
  */
 export async function updateSaleItem(
@@ -343,7 +402,9 @@ export async function updateSaleItem(
     per_price: number,
     amount: number,
     purchase_item_id?: number | null,
-    sale_type?: 'retail' | 'wholesale' | null
+    sale_type?: 'retail' | 'wholesale' | null,
+    discount_type?: 'percent' | 'fixed' | null,
+    discount_value?: number
 ): Promise<SaleItem> {
     return await invoke<SaleItem>("update_sale_item", {
         id,
@@ -353,6 +414,8 @@ export async function updateSaleItem(
         amount,
         purchaseItemId: purchase_item_id ?? null,
         saleType: sale_type ?? null,
+        discountType: discount_type ?? null,
+        discountValue: discount_value ?? 0,
     });
 }
 

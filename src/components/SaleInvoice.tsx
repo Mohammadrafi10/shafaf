@@ -594,6 +594,13 @@ export default function SaleInvoice({
                                 </div>
                             </div>
 
+                            {(() => {
+                                const hasLineDiscount = saleData.items.some((i) => (i.discount_type === "percent" || i.discount_type === "fixed") && (i.discount_value ?? 0) > 0)
+                                    || (saleData.service_items ?? []).some((s) => (s.discount_type === "percent" || s.discount_type === "fixed") && (s.discount_value ?? 0) > 0);
+                                const subtotal = saleData.items.reduce((s, i) => s + i.total, 0) + (saleData.service_items ?? []).reduce((s, si) => s + si.total, 0);
+                                const orderDisc = saleData.sale.order_discount_amount ?? 0;
+                                return (
+                                    <>
                             <div className="table-container">
                                 <table className="modern-table">
                                     <thead>
@@ -603,23 +610,63 @@ export default function SaleInvoice({
                                             <th style={{ width: "100px" }} className="text-center">واحد</th>
                                             <th style={{ width: "100px" }} className="text-center">تعداد</th>
                                             <th style={{ width: "140px" }} className="text-left">فی (واحد){currencyLabel}</th>
+                                            {hasLineDiscount && <th style={{ width: "100px" }} className="text-left">تخفیف{currencyLabel}</th>}
                                             <th style={{ width: "160px" }} className="text-left">مبلغ کل{currencyLabel}</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {saleData.items.map((item, index) => (
+                                        {saleData.items.map((item, index) => {
+                                            const lineSub = item.per_price * item.amount;
+                                            const lineDisc = (item.discount_type === "percent" || item.discount_type === "fixed") && (item.discount_value ?? 0) > 0
+                                                ? (item.discount_type === "percent" ? (lineSub * Math.min(100, item.discount_value!) / 100) : Math.min(item.discount_value!, lineSub))
+                                                : 0;
+                                            return (
                                             <tr key={item.id}>
                                                 <td className="text-center text-slate-400 font-bold text-sm">{index + 1}</td>
                                                 <td className="product-name">{getProductName(item.product_id)}</td>
                                                 <td className="text-center text-slate-500 bg-slate-50/50 rounded-lg mx-2">{getUnitName(item.unit_id)}</td>
                                                 <td className="text-center font-bold text-slate-700">{formatNumber(item.amount)}</td>
                                                 <td className="text-left font-medium text-slate-600">{formatNumber(item.per_price)}{currencyLabel}</td>
+                                                {hasLineDiscount && <td className="text-left text-amber-600">{lineDisc > 0 ? `-${formatNumber(lineDisc)}` : "—"}</td>}
                                                 <td className="text-left row-total">{formatNumber(item.total)}</td>
                                             </tr>
-                                        ))}
+                                            );
+                                        })}
+                                        {(saleData.service_items ?? []).map((si, idx) => {
+                                            const lineSub = si.price * si.quantity;
+                                            const lineDisc = (si.discount_type === "percent" || si.discount_type === "fixed") && (si.discount_value ?? 0) > 0
+                                                ? (si.discount_type === "percent" ? (lineSub * Math.min(100, si.discount_value!) / 100) : Math.min(si.discount_value!, lineSub))
+                                                : 0;
+                                            return (
+                                            <tr key={`s-${si.id}`} style={{ background: "#f0fdf4" }}>
+                                                <td className="text-center text-slate-400 font-bold text-sm">{saleData.items.length + idx + 1}</td>
+                                                <td className="product-name">{si.name} (خدمت)</td>
+                                                <td className="text-center text-slate-500 bg-slate-50/50 rounded-lg mx-2">—</td>
+                                                <td className="text-center font-bold text-slate-700">{formatNumber(si.quantity)}</td>
+                                                <td className="text-left font-medium text-slate-600">{formatNumber(si.price)}{currencyLabel}</td>
+                                                {hasLineDiscount && <td className="text-left text-amber-600">{lineDisc > 0 ? `-${formatNumber(lineDisc)}` : "—"}</td>}
+                                                <td className="text-left row-total">{formatNumber(si.total)}</td>
+                                            </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
+
+                            {(subtotal > 0 || orderDisc > 0) && (
+                                <div className="summary-section" style={{ marginTop: 8, padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>
+                                    <div className="total-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                        <span>جمع جزء</span>
+                                        <span>{formatNumber(subtotal)}{currencyLabel}</span>
+                                    </div>
+                                    {orderDisc > 0 && (
+                                        <div className="total-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, color: "#b45309" }}>
+                                            <span>تخفیف کل فاکتور</span>
+                                            <span>-{formatNumber(orderDisc)}{currencyLabel}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {saleData.additional_costs && saleData.additional_costs.length > 0 && (
                                 <div className="additional-costs-section">
@@ -652,6 +699,10 @@ export default function SaleInvoice({
                                     </div>
                                 </div>
                             )}
+
+                            </>
+                                );
+                            })()}
 
                             <div className="summary-section">
                                 <div className="footer-notes">
