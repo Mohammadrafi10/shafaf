@@ -15,6 +15,10 @@ import {
     getSaleAdditionalCosts,
     getProductBatches,
     validateDiscountCode,
+    getDiscountCodes,
+    createDiscountCode,
+    updateDiscountCode,
+    deleteDiscountCode,
     type Sale,
     type SaleItemInput,
     type SaleServiceItemInput,
@@ -22,6 +26,7 @@ import {
     type SalePayment,
     type SaleAdditionalCost,
     type ProductBatch,
+    type SaleDiscountCode,
 } from "../utils/sales";
 import { getServices as getServiceCatalog, type Service as ServiceCatalogItem } from "../utils/service";
 import { getCustomers, type Customer } from "../utils/customer";
@@ -117,6 +122,16 @@ const translations = {
     orderDiscountAmount: "مبلغ تخفیف",
     totalAfterOrderDiscount: "جمع پس از تخفیف",
     applyCode: "اعمال کد",
+    discountTokens: "کدهای تخفیف",
+    discountTokenManage: "مدیریت کدهای تخفیف",
+    addDiscountToken: "افزودن کد تخفیف",
+    minPurchase: "حداقل خرید",
+    validFrom: "اعتبار از",
+    validTo: "اعتبار تا",
+    maxUses: "حداکثر استفاده",
+    useCount: "تعداد استفاده",
+    noDiscountTokens: "هیچ کد تخفیفی ثبت نشده است",
+    confirmDeleteDiscountToken: "آیا از حذف این کد تخفیف اطمینان دارید؟",
 };
 
 interface SalesManagementProps {
@@ -179,6 +194,21 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
     const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
     const [productBatches, setProductBatches] = useState<Record<number, ProductBatch[]>>({});
     const [discountCodeInput, setDiscountCodeInput] = useState("");
+
+    // Discount token (code) CRUD
+    const [discountCodes, setDiscountCodes] = useState<SaleDiscountCode[]>([]);
+    const [isDiscountTokenModalOpen, setIsDiscountTokenModalOpen] = useState(false);
+    const [editingDiscountToken, setEditingDiscountToken] = useState<SaleDiscountCode | null>(null);
+    const [discountTokenDeleteId, setDiscountTokenDeleteId] = useState<number | null>(null);
+    const [discountTokenForm, setDiscountTokenForm] = useState({
+        code: "",
+        type: "percent" as "percent" | "fixed",
+        value: 0,
+        min_purchase: 0,
+        valid_from: "",
+        valid_to: "",
+        max_uses: "" as string | number,
+    });
 
     // Pagination & Search
     const [page, setPage] = useState(1);
@@ -432,6 +462,80 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         } catch (error) {
             console.error("Error deleting payment:", error);
             toast.error("خطا در حذف پرداخت");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadDiscountCodes = async () => {
+        try {
+            const list = await getDiscountCodes();
+            setDiscountCodes(list);
+        } catch (e) {
+            toast.error("خطا در دریافت کدهای تخفیف");
+        }
+    };
+
+    const handleDiscountTokenSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!discountTokenForm.code.trim()) {
+            toast.error("کد تخفیف الزامی است");
+            return;
+        }
+        try {
+            setLoading(true);
+            const payload = {
+                code: discountTokenForm.code.trim().toUpperCase(),
+                type: discountTokenForm.type,
+                value: Number(discountTokenForm.value) || 0,
+                min_purchase: Number(discountTokenForm.min_purchase) || 0,
+                valid_from: discountTokenForm.valid_from.trim() || null,
+                valid_to: discountTokenForm.valid_to.trim() || null,
+                max_uses: discountTokenForm.max_uses === "" ? null : Number(discountTokenForm.max_uses),
+            };
+            if (editingDiscountToken) {
+                await updateDiscountCode(editingDiscountToken.id, payload);
+                toast.success("کد تخفیف بروزرسانی شد");
+            } else {
+                await createDiscountCode(payload);
+                toast.success("کد تخفیف ثبت شد");
+            }
+            setEditingDiscountToken(null);
+            setDiscountTokenForm({ code: "", type: "percent", value: 0, min_purchase: 0, valid_from: "", valid_to: "", max_uses: "" });
+            await loadDiscountCodes();
+        } catch (err: any) {
+            toast.error(err?.message || "خطا در ذخیره کد تخفیف");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleEditDiscountToken = (dc: SaleDiscountCode) => {
+        setEditingDiscountToken(dc);
+        setDiscountTokenForm({
+            code: dc.code,
+            type: dc.type as "percent" | "fixed",
+            value: dc.value,
+            min_purchase: dc.min_purchase,
+            valid_from: dc.valid_from || "",
+            valid_to: dc.valid_to || "",
+            max_uses: dc.max_uses ?? "",
+        });
+    };
+
+    const handleDeleteDiscountToken = async (id: number) => {
+        try {
+            setLoading(true);
+            await deleteDiscountCode(id);
+            toast.success("کد تخفیف حذف شد");
+            setDiscountTokenDeleteId(null);
+            await loadDiscountCodes();
+            if (editingDiscountToken?.id === id) {
+                setEditingDiscountToken(null);
+                setDiscountTokenForm({ code: "", type: "percent", value: 0, min_purchase: 0, valid_from: "", valid_to: "", max_uses: "" });
+            }
+        } catch (e) {
+            toast.error("خطا در حذف کد تخفیف");
         } finally {
             setLoading(false);
         }
@@ -933,6 +1037,21 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                     onBack={onBack}
                     backLabel={translations.backToDashboard}
                     actions={[
+                        {
+                            label: translations.discountTokens,
+                            onClick: async () => {
+                                try {
+                                    const list = await getDiscountCodes();
+                                    setDiscountCodes(list);
+                                    setEditingDiscountToken(null);
+                                    setDiscountTokenForm({ code: "", type: "percent", value: 0, min_purchase: 0, valid_from: "", valid_to: "", max_uses: "" });
+                                    setIsDiscountTokenModalOpen(true);
+                                } catch (e) {
+                                    toast.error("خطا در دریافت کدهای تخفیف");
+                                }
+                            },
+                            variant: "secondary" as const
+                        },
                         {
                             label: translations.addNew,
                             onClick: () => handleOpenModal(),
@@ -2219,6 +2338,207 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                     </div>
                                 </div>
                             </div>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Discount Token (Code) CRUD Modal */}
+                <AnimatePresence>
+                    {isDiscountTokenModalOpen && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4"
+                            onClick={() => {
+                                setIsDiscountTokenModalOpen(false);
+                                setEditingDiscountToken(null);
+                                setDiscountTokenDeleteId(null);
+                            }}
+                        >
+                            <motion.div
+                                initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                                animate={{ scale: 1, opacity: 1, y: 0 }}
+                                exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-purple-100 dark:border-purple-900/30 flex flex-col"
+                            >
+                                <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{translations.discountTokenManage}</h2>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsDiscountTokenModalOpen(false);
+                                            setEditingDiscountToken(null);
+                                            setDiscountTokenDeleteId(null);
+                                        }}
+                                        className="p-2 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300"
+                                    >
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                                <div className="p-8 overflow-y-auto flex-1">
+                                    <form onSubmit={handleDiscountTokenSubmit} className="mb-8 p-6 bg-gray-50 dark:bg-gray-700/50 rounded-2xl border border-gray-200 dark:border-gray-600">
+                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">{editingDiscountToken ? translations.edit : translations.addDiscountToken}</h3>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.discountCode}</label>
+                                                <input
+                                                    type="text"
+                                                    value={discountTokenForm.code}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, code: e.target.value })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    placeholder="مثلاً SUMMER20"
+                                                    dir="ltr"
+                                                    disabled={!!editingDiscountToken}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.discountType}</label>
+                                                <select
+                                                    value={discountTokenForm.type}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, type: e.target.value as "percent" | "fixed" })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                >
+                                                    <option value="percent">{translations.percent}</option>
+                                                    <option value="fixed">{translations.fixed}</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.discount}</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min={0}
+                                                    value={discountTokenForm.value || ""}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, value: parseFloat(e.target.value) || 0 })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    dir="ltr"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.minPurchase}</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    min={0}
+                                                    value={discountTokenForm.min_purchase || ""}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, min_purchase: parseFloat(e.target.value) || 0 })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    dir="ltr"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.validFrom}</label>
+                                                <input
+                                                    type="date"
+                                                    value={discountTokenForm.valid_from}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, valid_from: e.target.value })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.validTo}</label>
+                                                <input
+                                                    type="date"
+                                                    value={discountTokenForm.valid_to}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, valid_to: e.target.value })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{translations.maxUses}</label>
+                                                <input
+                                                    type="number"
+                                                    min={1}
+                                                    value={discountTokenForm.max_uses === "" ? "" : discountTokenForm.max_uses}
+                                                    onChange={(e) => setDiscountTokenForm({ ...discountTokenForm, max_uses: e.target.value === "" ? "" : parseInt(e.target.value, 10) })}
+                                                    className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                    placeholder="نامحدود"
+                                                    dir="ltr"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 flex gap-2">
+                                            <button
+                                                type="submit"
+                                                disabled={loading}
+                                                className="px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl disabled:opacity-50"
+                                            >
+                                                {loading ? "..." : (editingDiscountToken ? translations.save : translations.addDiscountToken)}
+                                            </button>
+                                            {editingDiscountToken && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingDiscountToken(null);
+                                                        setDiscountTokenForm({ code: "", type: "percent", value: 0, min_purchase: 0, valid_from: "", valid_to: "", max_uses: "" });
+                                                    }}
+                                                    className="px-4 py-2 bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-white font-bold rounded-xl"
+                                                >
+                                                    {translations.cancel}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </form>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">لیست کدهای تخفیف</h3>
+                                        {discountCodes.length === 0 ? (
+                                            <p className="text-gray-500 dark:text-gray-400 py-4">{translations.noDiscountTokens}</p>
+                                        ) : (
+                                            <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-600">
+                                                <table className="w-full text-sm">
+                                                    <thead className="bg-gray-100 dark:bg-gray-700">
+                                                        <tr>
+                                                            <th className="px-4 py-3 text-right font-bold text-gray-700 dark:text-gray-300">کد</th>
+                                                            <th className="px-4 py-3 text-right font-bold text-gray-700 dark:text-gray-300">نوع</th>
+                                                            <th className="px-4 py-3 text-right font-bold text-gray-700 dark:text-gray-300">مقدار</th>
+                                                            <th className="px-4 py-3 text-right font-bold text-gray-700 dark:text-gray-300">{translations.minPurchase}</th>
+                                                            <th className="px-4 py-3 text-right font-bold text-gray-700 dark:text-gray-300">{translations.useCount}</th>
+                                                            <th className="px-4 py-3 text-right font-bold text-gray-700 dark:text-gray-300">عملیات</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                                                        {discountCodes.map((dc) => (
+                                                            <tr key={dc.id} className="bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                                <td className="px-4 py-3 font-mono text-gray-900 dark:text-white">{dc.code}</td>
+                                                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{dc.type === "percent" ? "درصد" : "مبلغ ثابت"}</td>
+                                                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300" dir="ltr">{dc.type === "percent" ? `${dc.value}%` : dc.value.toLocaleString("en-US")}</td>
+                                                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300" dir="ltr">{dc.min_purchase.toLocaleString("en-US")}</td>
+                                                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{dc.use_count}{dc.max_uses != null ? ` / ${dc.max_uses}` : ""}</td>
+                                                                <td className="px-4 py-3 flex gap-2">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleEditDiscountToken(dc)}
+                                                                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                                                                    >
+                                                                        {translations.edit}
+                                                                    </button>
+                                                                    {discountTokenDeleteId === dc.id ? (
+                                                                        <>
+                                                                            <span className="text-amber-600 dark:text-amber-400 text-xs">{translations.confirmDeleteDiscountToken}</span>
+                                                                            <button type="button" onClick={() => handleDeleteDiscountToken(dc.id)} className="text-red-600 dark:text-red-400 font-bold">بله، حذف</button>
+                                                                            <button type="button" onClick={() => setDiscountTokenDeleteId(null)} className="text-gray-600 dark:text-gray-400">لغو</button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setDiscountTokenDeleteId(dc.id)}
+                                                                            className="text-red-600 dark:text-red-400 hover:underline"
+                                                                        >
+                                                                            {translations.delete}
+                                                                        </button>
+                                                                    )}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </motion.div>
                         </motion.div>
                     )}

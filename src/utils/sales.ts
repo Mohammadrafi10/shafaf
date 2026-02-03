@@ -139,6 +139,81 @@ export async function validateDiscountCode(code: string, subtotal: number): Prom
     return await invoke<[string, number]>("validate_discount_code", { code, subtotal });
 }
 
+/** Discount code / token for sales (coupon/promo). */
+export interface SaleDiscountCode {
+    id: number;
+    code: string;
+    type: "percent" | "fixed";
+    value: number;
+    min_purchase: number;
+    valid_from: string | null;
+    valid_to: string | null;
+    max_uses: number | null;
+    use_count: number;
+    created_at: string;
+}
+
+/**
+ * Get all discount codes, optionally filtered by search.
+ */
+export async function getDiscountCodes(search?: string): Promise<SaleDiscountCode[]> {
+    return await invoke<SaleDiscountCode[]>("get_discount_codes", { search: search ?? null });
+}
+
+/**
+ * Create a new discount code.
+ */
+export async function createDiscountCode(params: {
+    code: string;
+    type: "percent" | "fixed";
+    value: number;
+    min_purchase: number;
+    valid_from?: string | null;
+    valid_to?: string | null;
+    max_uses?: number | null;
+}): Promise<SaleDiscountCode> {
+    return await invoke<SaleDiscountCode>("create_discount_code", {
+        code: params.code.trim().toUpperCase(),
+        type: params.type,
+        value: params.value,
+        min_purchase: params.min_purchase,
+        valid_from: params.valid_from ?? null,
+        valid_to: params.valid_to ?? null,
+        max_uses: params.max_uses ?? null,
+    });
+}
+
+/**
+ * Update a discount code.
+ */
+export async function updateDiscountCode(id: number, params: {
+    code: string;
+    type: "percent" | "fixed";
+    value: number;
+    min_purchase: number;
+    valid_from?: string | null;
+    valid_to?: string | null;
+    max_uses?: number | null;
+}): Promise<SaleDiscountCode> {
+    return await invoke<SaleDiscountCode>("update_discount_code", {
+        id,
+        code: params.code.trim().toUpperCase(),
+        type: params.type,
+        value: params.value,
+        min_purchase: params.min_purchase,
+        valid_from: params.valid_from ?? null,
+        valid_to: params.valid_to ?? null,
+        max_uses: params.max_uses ?? null,
+    });
+}
+
+/**
+ * Delete a discount code.
+ */
+export async function deleteDiscountCode(id: number): Promise<string> {
+    return await invoke<string>("delete_discount_code", { id });
+}
+
 /**
  * Create a new sale with items and optional service items
  * @param customer_id Customer ID

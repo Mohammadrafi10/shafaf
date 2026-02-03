@@ -113,6 +113,88 @@ fn get_mysql_opts() -> Result<Opts, String> {
     Ok(Opts::from(opts))
 }
 
+/// Path to the .env file used by the app (config directory).
+fn get_env_path() -> PathBuf {
+    get_config_dir().join(".env")
+}
+
+/// Response for get_env_config: current MySQL settings and whether .env file exists in config dir.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EnvConfig {
+    pub has_env_file: bool,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+}
+
+/// Get current database env config (for the configuration page). Reads from env vars already loaded.
+#[tauri::command]
+fn get_env_config() -> Result<EnvConfig, String> {
+    let env_path = get_env_path();
+    let has_env_file = env_path.exists();
+    let host = std::env::var("MYSQL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port: u16 = std::env::var("MYSQL_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3306);
+    let user = std::env::var("MYSQL_USER").unwrap_or_default();
+    let password = std::env::var("MYSQL_PASSWORD").unwrap_or_default();
+    let database = std::env::var("MYSQL_DATABASE").unwrap_or_else(|_| "tauri_app".to_string());
+    Ok(EnvConfig {
+        has_env_file,
+        host,
+        port,
+        user,
+        password,
+        database,
+    })
+}
+
+/// Save database configuration to .env and reload env vars so next connection uses new values.
+#[tauri::command]
+fn save_env_config(host: String, port: u16, user: String, password: String, database: String) -> Result<(), String> {
+    let config_dir = get_config_dir();
+    fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
+    let env_path = config_dir.join(".env");
+
+    let content = if env_path.exists() {
+        fs::read_to_string(&env_path).unwrap_or_else(|_| DEFAULT_ENV_CONTENT.to_string())
+    } else {
+        DEFAULT_ENV_CONTENT.to_string()
+    };
+
+    let mut lines: Vec<String> = content.lines().map(String::from).collect();
+    let keys = ["MYSQL_HOST", "MYSQL_PORT", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_DATABASE"];
+    let values: Vec<String> = vec![host, port.to_string(), user, password, database];
+    let mut replaced = vec![false; keys.len()];
+
+    for line in lines.iter_mut() {
+        for (j, key) in keys.iter().enumerate() {
+            if line.starts_with(&format!("{}=", key)) {
+                *line = format!("{}={}", key, values[j]);
+                replaced[j] = true;
+                break;
+            }
+        }
+    }
+    for (j, key) in keys.iter().enumerate() {
+        if !replaced[j] {
+            lines.push(format!("{}={}", key, values[j]));
+        }
+    }
+
+    fs::write(&env_path, lines.join("\n")).map_err(|e| format!("Failed to write .env: {}", e))?;
+    dotenv::from_path(&env_path).ok();
+    std::env::set_var("MYSQL_HOST", &values[0]);
+    std::env::set_var("MYSQL_PORT", &values[1]);
+    std::env::set_var("MYSQL_USER", &values[2]);
+    std::env::set_var("MYSQL_PASSWORD", &values[3]);
+    std::env::set_var("MYSQL_DATABASE", &values[4]);
+    Ok(())
+}
+
 /// Get app data directory for backups (same layout as before, for backup files).
 fn get_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let data_dir = if cfg!(target_os = "android") {
@@ -4063,6 +4145,7 @@ pub struct SaleServiceItem {
 pub struct SaleDiscountCode {
     pub id: i64,
     pub code: String,
+    #[serde(rename = "type")]
     pub type_: String,
     pub value: f64,
     pub min_purchase: f64,
@@ -4167,6 +4250,176 @@ fn validate_discount_code(
         "fixed".to_string()
     };
     Ok((discount_type, value))
+}
+
+/// Get all discount codes (optionally filtered by search).
+#[tauri::command]
+fn get_discount_codes(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    search: Option<String>,
+) -> Result<Vec<SaleDiscountCode>, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let (sql, params): (String, Vec<Value>) = if let Some(s) = search {
+        if s.trim().is_empty() {
+            ("SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count, created_at FROM sale_discount_codes ORDER BY code ASC".to_string(), vec![])
+        } else {
+            let term = format!("%{}%", s.trim());
+            ("SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count, created_at FROM sale_discount_codes WHERE code LIKE ? ORDER BY code ASC".to_string(), vec![Value::Bytes(term.into_bytes())])
+        }
+    } else {
+        ("SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count, created_at FROM sale_discount_codes ORDER BY code ASC".to_string(), vec![])
+    };
+
+    let list = db
+        .query(&sql, params, |row| {
+            Ok(SaleDiscountCode {
+                id: row_get(row, 0)?,
+                code: row_get(row, 1)?,
+                type_: row_get(row, 2)?,
+                value: row_get(row, 3)?,
+                min_purchase: row_get(row, 4)?,
+                valid_from: row_get(row, 5)?,
+                valid_to: row_get(row, 6)?,
+                max_uses: row_get(row, 7)?,
+                use_count: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+            })
+        })
+        .map_err(|e| format!("Failed to list discount codes: {}", e))?;
+    Ok(list)
+}
+
+/// Create a new discount code.
+#[tauri::command]
+fn create_discount_code(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    code: String,
+    type_: String,
+    value: f64,
+    min_purchase: f64,
+    valid_from: Option<String>,
+    valid_to: Option<String>,
+    max_uses: Option<i32>,
+) -> Result<SaleDiscountCode, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let code_trimmed = code.trim().to_uppercase();
+    if code_trimmed.is_empty() {
+        return Err("Code is required".to_string());
+    }
+    let discount_type = if type_.eq_ignore_ascii_case("percent") {
+        "percent"
+    } else {
+        "fixed"
+    };
+
+    let sql = "INSERT INTO sale_discount_codes (code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)";
+    db.execute(sql, (
+        &code_trimmed,
+        &discount_type,
+        &value,
+        &min_purchase,
+        &valid_from.as_deref(),
+        &valid_to.as_deref(),
+        &max_uses,
+    ))
+        .map_err(|e| format!("Failed to create discount code: {}", e))?;
+
+    let id_sql = "SELECT id FROM sale_discount_codes ORDER BY id DESC LIMIT 1";
+    let ids = db.query(id_sql, (), |row| Ok(row_get::<i64>(row, 0)?))
+        .map_err(|e| format!("Failed to get discount code id: {}", e))?;
+    let id = *ids.first().ok_or("Failed to get new discount code id")?;
+
+    let sel = "SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count, created_at FROM sale_discount_codes WHERE id = ?";
+    let rows = db
+        .query(sel, one_param(&id), |row| {
+            Ok(SaleDiscountCode {
+                id: row_get(row, 0)?,
+                code: row_get(row, 1)?,
+                type_: row_get(row, 2)?,
+                value: row_get(row, 3)?,
+                min_purchase: row_get(row, 4)?,
+                valid_from: row_get(row, 5)?,
+                valid_to: row_get(row, 6)?,
+                max_uses: row_get(row, 7)?,
+                use_count: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch created discount code: {}", e))?;
+    rows.into_iter().next().ok_or("Failed to load created discount code".to_string())
+}
+
+/// Update a discount code.
+#[tauri::command]
+fn update_discount_code(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    id: i64,
+    code: String,
+    type_: String,
+    value: f64,
+    min_purchase: f64,
+    valid_from: Option<String>,
+    valid_to: Option<String>,
+    max_uses: Option<i32>,
+) -> Result<SaleDiscountCode, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let code_trimmed = code.trim().to_uppercase();
+    if code_trimmed.is_empty() {
+        return Err("Code is required".to_string());
+    }
+    let discount_type = if type_.eq_ignore_ascii_case("percent") {
+        "percent"
+    } else {
+        "fixed"
+    };
+
+    let sql = "UPDATE sale_discount_codes SET code = ?, type = ?, value = ?, min_purchase = ?, valid_from = ?, valid_to = ?, max_uses = ? WHERE id = ?";
+    db.execute(sql, (
+        &code_trimmed,
+        &discount_type,
+        &value,
+        &min_purchase,
+        &valid_from.as_deref(),
+        &valid_to.as_deref(),
+        &max_uses,
+        &id,
+    ))
+        .map_err(|e| format!("Failed to update discount code: {}", e))?;
+
+    let sel = "SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count, created_at FROM sale_discount_codes WHERE id = ?";
+    let rows = db
+        .query(sel, one_param(&id), |row| {
+            Ok(SaleDiscountCode {
+                id: row_get(row, 0)?,
+                code: row_get(row, 1)?,
+                type_: row_get(row, 2)?,
+                value: row_get(row, 3)?,
+                min_purchase: row_get(row, 4)?,
+                valid_from: row_get(row, 5)?,
+                valid_to: row_get(row, 6)?,
+                max_uses: row_get(row, 7)?,
+                use_count: row_get(row, 8)?,
+                created_at: row_get_string_or_datetime(row, 9)?,
+            })
+        })
+        .map_err(|e| format!("Failed to fetch updated discount code: {}", e))?;
+    rows.into_iter().next().ok_or("Failed to load updated discount code".to_string())
+}
+
+/// Delete a discount code.
+#[tauri::command]
+fn delete_discount_code(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<String, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+    db.execute("DELETE FROM sale_discount_codes WHERE id = ?", one_param(&id))
+        .map_err(|e| format!("Failed to delete discount code: {}", e))?;
+    Ok("OK".to_string())
 }
 
 /// Create a new service (catalog entry)
@@ -7535,6 +7788,8 @@ pub fn run() {
         })
         .manage(Mutex::new(None::<Database>))
         .invoke_handler(tauri::generate_handler![
+            get_env_config,
+            save_env_config,
             db_create,
             db_open,
             db_close,
@@ -7607,6 +7862,10 @@ pub fn run() {
             init_services_table,
             init_sale_discount_codes_table,
             validate_discount_code,
+            get_discount_codes,
+            create_discount_code,
+            update_discount_code,
+            delete_discount_code,
             create_service,
             get_services,
             get_service,

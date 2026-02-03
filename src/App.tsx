@@ -19,6 +19,7 @@ import { checkForUpdatesOnStartup, checkForUpdates, installUpdate } from "./util
 import { startCredentialSync } from "./utils/puter";
 import Login from "./components/Login";
 import License from "./components/License";
+import DatabaseConfig from "./components/DatabaseConfig";
 import CurrencyManagement from "./components/Currency";
 import SupplierManagement from "./components/Supplier";
 import ProductManagement from "./components/Product";
@@ -374,27 +375,11 @@ function App() {
       );
     }
     if (dbReady === false) {
-      const isSha256Auth = dbError != null && dbError.includes("sha256_password");
       return (
-        <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 max-w-md w-full text-center">
-            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">خطا در اتصال به پایگاه داده</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 break-all">{dbError ?? "پایگاه داده در دسترس نیست."}</p>
-            {isSha256Auth && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mb-4 text-right">
-                این برنامه فقط با کاربران MySQL با پلاگین mysql_native_password یا caching_sha2_password کار می‌کند. روی سرور MySQL اجرا کنید: ALTER USER &apos;user&apos;@&apos;host&apos; IDENTIFIED WITH mysql_native_password BY &apos;password&apos;; FLUSH PRIVILEGES;
-              </p>
-            )}
-            <p className="text-xs text-gray-500 dark:text-gray-500 mb-4">از صحت تنظیمات MySQL در فایل .env اطمینان حاصل کنید.</p>
-            <button
-              type="button"
-              onClick={() => ensureDatabase()}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              تلاش مجدد
-            </button>
-          </div>
-        </div>
+        <DatabaseConfig
+          dbError={dbError}
+          onSaveSuccess={() => ensureDatabase()}
+        />
       );
     }
     return <Login onLoginSuccess={(user) => setUser(user)} />;

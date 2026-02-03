@@ -1,5 +1,42 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export interface EnvConfig {
+  has_env_file: boolean;
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}
+
+/**
+ * Get current database env configuration (for setup/configuration page).
+ * Values are read from the backend .env / environment.
+ */
+export async function getEnvConfig(): Promise<EnvConfig> {
+  return await invoke<EnvConfig>("get_env_config");
+}
+
+/**
+ * Save database configuration to .env and reload in the app.
+ * After calling this, retry opening the database (e.g. ensureDatabase).
+ */
+export async function saveEnvConfig(config: {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  database: string;
+}): Promise<void> {
+  await invoke("save_env_config", {
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+  });
+}
+
 export interface QueryResult {
   columns: string[];
   rows: Array<Array<any>>;
