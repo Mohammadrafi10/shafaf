@@ -3997,7 +3997,7 @@ fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
     ";
     let rows = db
         .query(sql, (), |row| {
-            let remaining: f64 = row_get(row, 10)?;
+            let remaining: f64 = row_get(row, 9)?;
             Ok(StockBatchRow {
                 product_id: row_get(row, 0)?,
                 product_name: row_get(row, 1)?,
