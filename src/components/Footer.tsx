@@ -48,14 +48,6 @@ export default function Footer({ className = "" }: FooterProps) {
           www.galaxytechology.com
         </a>
         {" "}-{" "}
-        <a
-          href="https://developer.puter.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors duration-200 hover:underline"
-        >
-          Powered by Puter
-        </a>
       </p>
     </motion.footer>
   );

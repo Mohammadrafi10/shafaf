@@ -504,7 +504,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             setDiscountTokenForm({ code: "", type: "percent", value: 0, min_purchase: 0, valid_from: "", valid_to: "", max_uses: "" });
             await loadDiscountCodes();
         } catch (err: any) {
-            toast.error(err?.message || "خطا در ذخیره کد تخفیف");
+            const msg = typeof err === "string" ? err : err?.message ?? err?.toString?.() ?? "خطا در ذخیره کد تخفیف";
+            toast.error(msg);
         } finally {
             setLoading(false);
         }

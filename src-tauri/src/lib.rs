@@ -4292,11 +4292,11 @@ fn get_discount_codes(
 }
 
 /// Create a new discount code.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn create_discount_code(
     db_state: State<'_, Mutex<Option<Database>>>,
     code: String,
-    type_: String,
+    #[serde(rename = "type")] type_: String,
     value: f64,
     min_purchase: f64,
     valid_from: Option<String>,
@@ -4317,16 +4317,27 @@ fn create_discount_code(
     };
 
     let sql = "INSERT INTO sale_discount_codes (code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)";
-    db.execute(sql, (
-        &code_trimmed,
-        &discount_type,
-        &value,
-        &min_purchase,
-        &valid_from.as_deref(),
-        &valid_to.as_deref(),
-        &max_uses,
-    ))
-        .map_err(|e| format!("Failed to create discount code: {}", e))?;
+    let valid_from_val = valid_from.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let valid_to_val = valid_to.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let max_uses_val = max_uses.map(|n| Value::Int(n as i64)).unwrap_or(Value::NULL);
+    let params: Vec<Value> = vec![
+        Value::Bytes(code_trimmed.as_bytes().to_vec()),
+        Value::Bytes(discount_type.as_bytes().to_vec()),
+        Value::Double(value),
+        Value::Double(min_purchase),
+        valid_from_val,
+        valid_to_val,
+        max_uses_val,
+    ];
+    db.execute(sql, params)
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.to_lowercase().contains("duplicate") || msg.contains("UNIQUE") || msg.contains("1062") {
+                "این کد تخفیف قبلاً ثبت شده است".to_string()
+            } else {
+                format!("Failed to create discount code: {}", e)
+            }
+        })?;
 
     let id_sql = "SELECT id FROM sale_discount_codes ORDER BY id DESC LIMIT 1";
     let ids = db.query(id_sql, (), |row| Ok(row_get::<i64>(row, 0)?))
@@ -4354,12 +4365,12 @@ fn create_discount_code(
 }
 
 /// Update a discount code.
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn update_discount_code(
     db_state: State<'_, Mutex<Option<Database>>>,
     id: i64,
     code: String,
-    type_: String,
+    #[serde(rename = "type")] type_: String,
     value: f64,
     min_purchase: f64,
     valid_from: Option<String>,
@@ -4380,16 +4391,20 @@ fn update_discount_code(
     };
 
     let sql = "UPDATE sale_discount_codes SET code = ?, type = ?, value = ?, min_purchase = ?, valid_from = ?, valid_to = ?, max_uses = ? WHERE id = ?";
-    db.execute(sql, (
-        &code_trimmed,
-        &discount_type,
-        &value,
-        &min_purchase,
-        &valid_from.as_deref(),
-        &valid_to.as_deref(),
-        &max_uses,
-        &id,
-    ))
+    let valid_from_val = valid_from.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let valid_to_val = valid_to.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let max_uses_val = max_uses.map(|n| Value::Int(n as i64)).unwrap_or(Value::NULL);
+    let params: Vec<Value> = vec![
+        Value::Bytes(code_trimmed.as_bytes().to_vec()),
+        Value::Bytes(discount_type.as_bytes().to_vec()),
+        Value::Double(value),
+        Value::Double(min_purchase),
+        valid_from_val,
+        valid_to_val,
+        max_uses_val,
+        Value::Int(id),
+    ];
+    db.execute(sql, params)
         .map_err(|e| format!("Failed to update discount code: {}", e))?;
 
     let sel = "SELECT id, code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count, created_at FROM sale_discount_codes WHERE id = ?";
