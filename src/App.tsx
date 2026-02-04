@@ -197,7 +197,9 @@ function App() {
 
     const runBackup = async () => {
       try {
-        const path = await createDailyBackup();
+        const settings = await getCompanySettings().catch(() => null);
+        const customDir = settings?.auto_backup_dir?.trim() || undefined;
+        const path = await createDailyBackup(customDir);
         console.log("Daily backup completed:", path);
       } catch (err) {
         console.error("Daily backup failed:", err);

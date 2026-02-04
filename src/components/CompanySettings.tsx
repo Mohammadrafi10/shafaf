@@ -50,6 +50,9 @@ const translations = {
         updateAvailable: "بروزرسانی موجود است",
         installNow: "نصب بروزرسانی",
         autoBackupFolder: "پوشه پشتیبان خودکار",
+        autoBackupDirLabel: "مسیر پشتیبان خودکار",
+        chooseFolder: "انتخاب پوشه",
+        autoBackupDirHint: "اگر خالی باشد از پوشه پیش‌فرض برنامه استفاده می‌شود",
     },
 };
 
@@ -69,6 +72,7 @@ export default function CompanySettings({ onBack, onNavigate }: CompanySettingsP
         phone: "",
         address: "",
         font: "",
+        auto_backup_dir: "",
     });
     const [availableFonts] = useState(getAvailableFonts());
     const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -167,6 +171,7 @@ export default function CompanySettings({ onBack, onNavigate }: CompanySettingsP
                     phone: settingsData.phone || "",
                     address: settingsData.address || "",
                     font: settingsData.font || "",
+                    auto_backup_dir: settingsData.auto_backup_dir || "",
                 });
             }
         } catch (error: any) {
@@ -223,6 +228,7 @@ export default function CompanySettings({ onBack, onNavigate }: CompanySettingsP
                 phone: formData.phone || undefined,
                 address: formData.address || undefined,
                 font: formData.font || undefined,
+                auto_backup_dir: formData.auto_backup_dir?.trim() || null,
             });
 
             if (updatedSettings) {
@@ -468,7 +474,7 @@ export default function CompanySettings({ onBack, onNavigate }: CompanySettingsP
                     {backupsDir != null && (
                         <div className="mt-4 p-4 rounded-xl bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700">
                             <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                                {translations.system.autoBackupFolder}
+                                پوشه پیش‌فرض (وقتی مسیر انتخاب نشده)
                             </p>
                             <p className="text-sm text-gray-600 dark:text-gray-400 break-all font-mono dir-ltr" title={backupsDir}>
                                 {backupsDir}
@@ -649,6 +655,47 @@ export default function CompanySettings({ onBack, onNavigate }: CompanySettingsP
                                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                                     فونت‌های سفارشی را در پوشه public/fonts قرار دهید (فرمت‌های .ttf, .otf, .woff, .woff2)
                                 </p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                    {translations.system.autoBackupDirLabel}
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={formData.auto_backup_dir}
+                                        onChange={(e) => setFormData({ ...formData, auto_backup_dir: e.target.value })}
+                                        placeholder={translations.system.autoBackupDirHint}
+                                        className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 font-mono text-sm dir-ltr"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            try {
+                                                const path = await open({ directory: true, title: "انتخاب پوشه پشتیبان خودکار" });
+                                                if (path && typeof path === "string") {
+                                                    setFormData((prev) => ({ ...prev, auto_backup_dir: path }));
+                                                }
+                                            } catch (e) {
+                                                if (String(e).includes("cancelled") === false) {
+                                                    toast.error("خطا در انتخاب پوشه");
+                                                }
+                                            }
+                                        }}
+                                        className="px-4 py-3 rounded-xl border-2 border-purple-300 dark:border-purple-600 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 font-semibold whitespace-nowrap transition-colors"
+                                    >
+                                        {translations.system.chooseFolder}
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                                    {translations.system.autoBackupDirHint}
+                                </p>
+                                {backupsDir != null && (
+                                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 font-mono dir-ltr break-all">
+                                        پوشه پیش‌فرض: {backupsDir}
+                                    </p>
+                                )}
                             </div>
                         </div>
                     </motion.div>

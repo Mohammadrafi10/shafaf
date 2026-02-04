@@ -7,6 +7,7 @@ export interface CompanySettings {
     phone?: string;
     address?: string;
     font?: string;
+    auto_backup_dir?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -17,6 +18,7 @@ export interface CompanySettingsFormData {
     phone?: string;
     address?: string;
     font?: string;
+    auto_backup_dir?: string | null;
 }
 
 /**
@@ -49,5 +51,6 @@ export async function updateCompanySettings(
         phone: settings.phone || null,
         address: settings.address || null,
         font: settings.font || null,
+        auto_backup_dir: settings.auto_backup_dir ?? null,
     });
 }

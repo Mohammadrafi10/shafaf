@@ -306,9 +306,9 @@ fn get_backups_dir(app: AppHandle) -> Result<String, String> {
     Ok(backups_dir.to_string_lossy().to_string())
 }
 
-/// Create a daily backup in the app data folder (backups subfolder).
+/// Create a daily backup. If custom_dir is set, use that folder; otherwise use app data backups subfolder.
 #[tauri::command]
-fn create_daily_backup(app: AppHandle) -> Result<String, String> {
+fn create_daily_backup(app: AppHandle, custom_dir: Option<String>) -> Result<String, String> {
     let opts = get_mysql_opts()?;
     let host = opts.get_ip_or_hostname().to_string();
     let port = opts.get_tcp_port();
@@ -316,7 +316,10 @@ fn create_daily_backup(app: AppHandle) -> Result<String, String> {
     let pass = opts.get_pass().unwrap_or("").to_string();
     let db_name = opts.get_db_name().ok_or("MYSQL_DATABASE not set")?;
     let data_dir = get_app_data_dir(&app)?;
-    let backups_dir = data_dir.join("backups");
+    let backups_dir = match custom_dir.as_deref().map(str::trim) {
+        Some(d) if !d.is_empty() => std::path::PathBuf::from(d),
+        _ => data_dir.join("backups"),
+    };
     fs::create_dir_all(&backups_dir).map_err(|e: io::Error| format!("Failed to create backups dir: {}", e))?;
     let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
     let backup_path = backups_dir.join(format!("db-backup-{}.sql", date_str));
@@ -6226,15 +6229,23 @@ pub struct CompanySettings {
     pub phone: Option<String>,
     pub address: Option<String>,
     pub font: Option<String>,
+    pub auto_backup_dir: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
 
 /// Initialize company_settings table (schema from db.sql on first open).
+/// Ensures auto_backup_dir column exists for existing databases.
 #[tauri::command]
 fn init_company_settings_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
-    let _db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let _ = _db_guard.as_ref().ok_or("No database is currently open")?;
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+    if let Err(e) = db.execute("ALTER TABLE company_settings ADD COLUMN auto_backup_dir TEXT NULL", ()) {
+        let msg = e.to_string();
+        if !msg.contains("Duplicate column") && !msg.contains("1060") {
+            return Err(msg);
+        }
+    }
     Ok("OK".to_string())
 }
 
@@ -6244,7 +6255,7 @@ fn get_company_settings(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let sql = "SELECT id, name, logo, phone, address, font, created_at, updated_at FROM company_settings ORDER BY id LIMIT 1";
+    let sql = "SELECT id, name, logo, phone, address, font, auto_backup_dir, created_at, updated_at FROM company_settings ORDER BY id LIMIT 1";
     let settings_list = db
         .query(sql, (), |row| {
             Ok(CompanySettings {
@@ -6254,8 +6265,9 @@ fn get_company_settings(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
                 phone: row_get(row, 3)?,
                 address: row_get(row, 4)?,
                 font: row_get(row, 5)?,
-                created_at: row_get_string_or_datetime(row, 6)?,
-                updated_at: row_get_string_or_datetime(row, 7)?,
+                auto_backup_dir: row_get(row, 6)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch company settings: {}", e))?;
@@ -6273,6 +6285,7 @@ fn update_company_settings(
     phone: Option<String>,
     address: Option<String>,
     font: Option<String>,
+    auto_backup_dir: Option<String>,
 ) -> Result<CompanySettings, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
@@ -6285,30 +6298,32 @@ fn update_company_settings(
 
     if count == 0 {
         // Insert new settings
-        let insert_sql = "INSERT INTO company_settings (name, logo, phone, address, font) VALUES (?, ?, ?, ?, ?)";
+        let insert_sql = "INSERT INTO company_settings (name, logo, phone, address, font, auto_backup_dir) VALUES (?, ?, ?, ?, ?, ?)";
         db.execute(insert_sql, (
             &name,
             &logo,
             &phone,
             &address,
             &font,
+            &auto_backup_dir,
         ))
         .map_err(|e| format!("Failed to insert company settings: {}", e))?;
     } else {
         // Update existing settings (update first row)
-        let update_sql = "UPDATE company_settings SET name = ?, logo = ?, phone = ?, address = ?, font = ?, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM company_settings ORDER BY id LIMIT 1)";
+        let update_sql = "UPDATE company_settings SET name = ?, logo = ?, phone = ?, address = ?, font = ?, auto_backup_dir = ?, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM company_settings ORDER BY id LIMIT 1)";
         db.execute(update_sql, (
             &name,
             &logo,
             &phone,
             &address,
             &font,
+            &auto_backup_dir,
         ))
         .map_err(|e| format!("Failed to update company settings: {}", e))?;
     }
 
     // Get the updated settings (reuse the same db reference)
-    let get_sql = "SELECT id, name, logo, phone, address, font, created_at, updated_at FROM company_settings ORDER BY id LIMIT 1";
+    let get_sql = "SELECT id, name, logo, phone, address, font, auto_backup_dir, created_at, updated_at FROM company_settings ORDER BY id LIMIT 1";
     let settings_list = db
         .query(get_sql, (), |row| {
             Ok(CompanySettings {
@@ -6318,8 +6333,9 @@ fn update_company_settings(
                 phone: row_get(row, 3)?,
                 address: row_get(row, 4)?,
                 font: row_get(row, 5)?,
-                created_at: row_get_string_or_datetime(row, 6)?,
-                updated_at: row_get_string_or_datetime(row, 7)?,
+                auto_backup_dir: row_get(row, 6)?,
+                created_at: row_get_string_or_datetime(row, 7)?,
+                updated_at: row_get_string_or_datetime(row, 8)?,
             })
         })
         .map_err(|e| format!("Failed to fetch updated company settings: {}", e))?;

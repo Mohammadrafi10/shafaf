@@ -100,11 +100,13 @@ export async function getBackupsDir(): Promise<string> {
 }
 
 /**
- * Create a daily backup in the app data folder (backups subfolder). Used by the automatic daily backup scheduler.
+ * Create a daily backup. If customDir is set, backup is saved there; otherwise in app data backups folder.
+ * Used by the automatic daily backup scheduler.
+ * @param customDir Optional directory path from company settings (user-chosen auto backup location)
  * @returns Promise with the backup file path
  */
-export async function createDailyBackup(): Promise<string> {
-  return await invoke<string>("create_daily_backup");
+export async function createDailyBackup(customDir?: string | null): Promise<string> {
+  return await invoke<string>("create_daily_backup", { customDir: customDir ?? null });
 }
 
 /**
