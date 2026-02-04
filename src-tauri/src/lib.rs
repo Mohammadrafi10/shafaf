@@ -4156,6 +4156,20 @@ pub struct SaleDiscountCode {
     pub created_at: String,
 }
 
+/// Payload for create_discount_code and update_discount_code (JSON key "type" maps to type_).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct DiscountCodePayload {
+    code: String,
+    #[serde(rename = "type")]
+    type_: String,
+    value: f64,
+    min_purchase: f64,
+    valid_from: Option<String>,
+    valid_to: Option<String>,
+    max_uses: Option<i32>,
+}
+
 /// Initialize services table (catalog schema from db.sql on first open).
 #[tauri::command]
 fn init_services_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
@@ -4292,39 +4306,33 @@ fn get_discount_codes(
 }
 
 /// Create a new discount code.
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 fn create_discount_code(
     db_state: State<'_, Mutex<Option<Database>>>,
-    code: String,
-    #[serde(rename = "type")] type_: String,
-    value: f64,
-    min_purchase: f64,
-    valid_from: Option<String>,
-    valid_to: Option<String>,
-    max_uses: Option<i32>,
+    payload: DiscountCodePayload,
 ) -> Result<SaleDiscountCode, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let code_trimmed = code.trim().to_uppercase();
+    let code_trimmed = payload.code.trim().to_uppercase();
     if code_trimmed.is_empty() {
         return Err("Code is required".to_string());
     }
-    let discount_type = if type_.eq_ignore_ascii_case("percent") {
+    let discount_type = if payload.type_.eq_ignore_ascii_case("percent") {
         "percent"
     } else {
         "fixed"
     };
 
     let sql = "INSERT INTO sale_discount_codes (code, type, value, min_purchase, valid_from, valid_to, max_uses, use_count) VALUES (?, ?, ?, ?, ?, ?, ?, 0)";
-    let valid_from_val = valid_from.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
-    let valid_to_val = valid_to.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
-    let max_uses_val = max_uses.map(|n| Value::Int(n as i64)).unwrap_or(Value::NULL);
+    let valid_from_val = payload.valid_from.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let valid_to_val = payload.valid_to.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let max_uses_val = payload.max_uses.map(|n| Value::Int(n as i64)).unwrap_or(Value::NULL);
     let params: Vec<Value> = vec![
         Value::Bytes(code_trimmed.as_bytes().to_vec()),
         Value::Bytes(discount_type.as_bytes().to_vec()),
-        Value::Double(value),
-        Value::Double(min_purchase),
+        Value::Double(payload.value),
+        Value::Double(payload.min_purchase),
         valid_from_val,
         valid_to_val,
         max_uses_val,
@@ -4365,40 +4373,34 @@ fn create_discount_code(
 }
 
 /// Update a discount code.
-#[tauri::command(rename_all = "snake_case")]
+#[tauri::command]
 fn update_discount_code(
     db_state: State<'_, Mutex<Option<Database>>>,
     id: i64,
-    code: String,
-    #[serde(rename = "type")] type_: String,
-    value: f64,
-    min_purchase: f64,
-    valid_from: Option<String>,
-    valid_to: Option<String>,
-    max_uses: Option<i32>,
+    payload: DiscountCodePayload,
 ) -> Result<SaleDiscountCode, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let code_trimmed = code.trim().to_uppercase();
+    let code_trimmed = payload.code.trim().to_uppercase();
     if code_trimmed.is_empty() {
         return Err("Code is required".to_string());
     }
-    let discount_type = if type_.eq_ignore_ascii_case("percent") {
+    let discount_type = if payload.type_.eq_ignore_ascii_case("percent") {
         "percent"
     } else {
         "fixed"
     };
 
     let sql = "UPDATE sale_discount_codes SET code = ?, type = ?, value = ?, min_purchase = ?, valid_from = ?, valid_to = ?, max_uses = ? WHERE id = ?";
-    let valid_from_val = valid_from.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
-    let valid_to_val = valid_to.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
-    let max_uses_val = max_uses.map(|n| Value::Int(n as i64)).unwrap_or(Value::NULL);
+    let valid_from_val = payload.valid_from.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let valid_to_val = payload.valid_to.as_ref().map(|s| Value::Bytes(s.as_bytes().to_vec())).unwrap_or(Value::NULL);
+    let max_uses_val = payload.max_uses.map(|n| Value::Int(n as i64)).unwrap_or(Value::NULL);
     let params: Vec<Value> = vec![
         Value::Bytes(code_trimmed.as_bytes().to_vec()),
         Value::Bytes(discount_type.as_bytes().to_vec()),
-        Value::Double(value),
-        Value::Double(min_purchase),
+        Value::Double(payload.value),
+        Value::Double(payload.min_purchase),
         valid_from_val,
         valid_to_val,
         max_uses_val,

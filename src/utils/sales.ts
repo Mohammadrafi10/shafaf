@@ -172,7 +172,7 @@ export async function createDiscountCode(params: {
     valid_to?: string | null;
     max_uses?: number | null;
 }): Promise<SaleDiscountCode> {
-    return await invoke<SaleDiscountCode>("create_discount_code", {
+    const payload = {
         code: params.code.trim().toUpperCase(),
         type: params.type,
         value: params.value,
@@ -180,7 +180,8 @@ export async function createDiscountCode(params: {
         valid_from: params.valid_from ?? null,
         valid_to: params.valid_to ?? null,
         max_uses: params.max_uses ?? null,
-    });
+    };
+    return await invoke<SaleDiscountCode>("create_discount_code", { payload });
 }
 
 /**
@@ -195,8 +196,7 @@ export async function updateDiscountCode(id: number, params: {
     valid_to?: string | null;
     max_uses?: number | null;
 }): Promise<SaleDiscountCode> {
-    return await invoke<SaleDiscountCode>("update_discount_code", {
-        id,
+    const payload = {
         code: params.code.trim().toUpperCase(),
         type: params.type,
         value: params.value,
@@ -204,7 +204,8 @@ export async function updateDiscountCode(id: number, params: {
         valid_from: params.valid_from ?? null,
         valid_to: params.valid_to ?? null,
         max_uses: params.max_uses ?? null,
-    });
+    };
+    return await invoke<SaleDiscountCode>("update_discount_code", { id, payload });
 }
 
 /**
