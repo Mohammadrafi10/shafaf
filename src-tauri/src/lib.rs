@@ -3055,7 +3055,7 @@ pub struct ProductStock {
     pub total_in_unit: Option<f64>,
 }
 
-/// One row for stock report: batch with product info and remaining quantity.
+/// One row for stock report: batch with product info, remaining quantity, prices and profit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StockBatchRow {
     pub product_id: i64,
@@ -3068,6 +3068,14 @@ pub struct StockBatchRow {
     pub unit_name: String,
     pub amount: f64,
     pub remaining_quantity: f64,
+    pub per_price: f64,
+    pub cost_price: f64,
+    pub retail_price: Option<f64>,
+    pub wholesale_price: Option<f64>,
+    pub stock_value: f64,
+    pub potential_revenue_retail: f64,
+    pub potential_profit: f64,
+    pub margin_percent: f64,
 }
 
 // SalePayment Model
@@ -3979,7 +3987,11 @@ fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
             pi.expiry_date,
             COALESCE(u_pi.name, '') AS unit_name,
             pi.amount,
-            ROUND(((pi.amount * COALESCE(u_pi.ratio, 1)) - COALESCE(sold.sold_base, 0)) / COALESCE(u_pi.ratio, 1), 6) AS remaining_quantity
+            ROUND(((pi.amount * COALESCE(u_pi.ratio, 1)) - COALESCE(sold.sold_base, 0)) / COALESCE(u_pi.ratio, 1), 6) AS remaining_quantity,
+            pi.per_price,
+            COALESCE(pi.cost_price, pi.per_price) AS cost_price,
+            pi.retail_price,
+            pi.wholesale_price
         FROM purchase_items pi
         INNER JOIN purchases p ON pi.purchase_id = p.id
         LEFT JOIN units u_pi ON u_pi.id = pi.unit_id
@@ -3998,6 +4010,19 @@ fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
     let rows = db
         .query(sql, (), |row| {
             let remaining: f64 = row_get(row, 9)?;
+            let per_price: f64 = row_get(row, 10)?;
+            let cost_price: f64 = row_get(row, 11)?;
+            let retail_price: Option<f64> = row_get(row, 12)?;
+            let wholesale_price: Option<f64> = row_get(row, 13)?;
+            let stock_value = round2(cost_price * remaining);
+            let sell_price = retail_price.unwrap_or(per_price);
+            let potential_revenue_retail = round2(sell_price * remaining);
+            let potential_profit = round2(potential_revenue_retail - stock_value);
+            let margin_percent = if potential_revenue_retail > 0.0 {
+                round2((potential_profit / potential_revenue_retail) * 100.0)
+            } else {
+                0.0
+            };
             Ok(StockBatchRow {
                 product_id: row_get(row, 0)?,
                 product_name: row_get(row, 1)?,
@@ -4009,6 +4034,14 @@ fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
                 unit_name: row_get(row, 7)?,
                 amount: row_get(row, 8)?,
                 remaining_quantity: round6(remaining),
+                per_price,
+                cost_price,
+                retail_price,
+                wholesale_price,
+                stock_value,
+                potential_revenue_retail,
+                potential_profit,
+                margin_percent,
             })
         })
         .map_err(|e| format!("Failed to get stock by batches: {}", e))?;

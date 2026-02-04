@@ -252,3 +252,56 @@ export async function exportReportToExcel(reportData: ReportData): Promise<void>
   const dateStr = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `گزارش-${sanitizeFilename(reportData.title)}-${dateStr}.xlsx`);
 }
+
+/** Column definition for stock export */
+const STOCK_EXPORT_COLUMNS: { key: keyof import("./sales").StockBatchRow; label: string }[] = [
+  { key: "product_name", label: "نام محصول" },
+  { key: "batch_number", label: "شماره دسته" },
+  { key: "purchase_date", label: "تاریخ خرید" },
+  { key: "expiry_date", label: "تاریخ انقضا" },
+  { key: "unit_name", label: "واحد" },
+  { key: "amount", label: "مقدار اولیه" },
+  { key: "remaining_quantity", label: "موجودی باقی‌مانده" },
+  { key: "cost_price", label: "قیمت تمام شده" },
+  { key: "retail_price", label: "قیمت خرده‌فروشی" },
+  { key: "stock_value", label: "ارزش موجودی" },
+  { key: "potential_revenue_retail", label: "درآمد بالقوه (خرده)" },
+  { key: "potential_profit", label: "سود بالقوه" },
+  { key: "margin_percent", label: "درصد سود" },
+];
+
+/**
+ * Export stock report (by batches) to Excel.
+ */
+export function exportStockReportToExcel(
+  rows: import("./sales").StockBatchRow[],
+  totals: { totalStockValue: number; totalPotentialRevenue: number; totalPotentialProfit: number }
+): void {
+  const wb = XLSX.utils.book_new();
+  const summaryData: (string | number)[][] = [
+    ["گزارش موجودی (بر اساس دسته)", ""],
+    ["تاریخ خروجی", new Date().toISOString().slice(0, 10)],
+    [],
+    ["مجموع ارزش موجودی", totals.totalStockValue],
+    ["مجموع درآمد بالقوه", totals.totalPotentialRevenue],
+    ["مجموع سود بالقوه", totals.totalPotentialProfit],
+    [],
+  ];
+  const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(wb, summaryWs, "خلاصه");
+
+  const headerRow = STOCK_EXPORT_COLUMNS.map((c) => c.label);
+  const dataRows = rows.map((row) =>
+    STOCK_EXPORT_COLUMNS.map((col) => {
+      let v: unknown = row[col.key];
+      if (col.key === "retail_price") v = (v as number | null) ?? row.per_price;
+      if (v == null) return "";
+      return typeof v === "number" ? v : String(v);
+    })
+  );
+  const dataWs = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+  XLSX.utils.book_append_sheet(wb, dataWs, "موجودی دسته‌ها");
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `گزارش-موجودی-دسته-${dateStr}.xlsx`);
+}

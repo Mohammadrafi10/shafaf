@@ -642,6 +642,14 @@ export interface StockBatchRow {
     unit_name: string;
     amount: number;
     remaining_quantity: number;
+    per_price: number;
+    cost_price: number;
+    retail_price: number | null;
+    wholesale_price: number | null;
+    stock_value: number;
+    potential_revenue_retail: number;
+    potential_profit: number;
+    margin_percent: number;
 }
 
 /**
