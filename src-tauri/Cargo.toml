@@ -40,4 +40,5 @@ axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs"] }
+escpos = "0.17"
 

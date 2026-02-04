@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import toast from "react-hot-toast";
 import { SaleWithItems, SalePayment } from "../utils/sales";
 import { Customer } from "../utils/customer";
 import { Product } from "../utils/product";
@@ -6,6 +7,12 @@ import { Unit } from "../utils/unit";
 import { CompanySettings } from "../utils/company";
 import { georgianToPersian } from "../utils/date";
 import * as QRCode from "qrcode";
+import {
+    printSaleReceiptThermal,
+    getStoredThermalPrinter,
+    setStoredThermalPrinter,
+    type ThermalReceiptPayload,
+} from "../utils/thermalPrint";
 
 interface SaleInvoiceProps {
     saleData: SaleWithItems;
@@ -31,6 +38,11 @@ export default function SaleInvoice({
     const printRef = useRef<HTMLDivElement>(null);
     const qrCodeCanvasRef = useRef<HTMLCanvasElement>(null);
     const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
+    const [showPrinterModal, setShowPrinterModal] = useState(false);
+    const [printerIp, setPrinterIp] = useState("");
+    const [printerPort, setPrinterPort] = useState("9100");
+    const [savePrinterForNextTime, setSavePrinterForNextTime] = useState(true);
+    const [thermalPrinting, setThermalPrinting] = useState(false);
 
     // Generate QR code on mount
     useEffect(() => {
@@ -66,6 +78,77 @@ export default function SaleInvoice({
     const handlePrint = () => {
         window.print();
     };
+
+    function buildThermalPayload(): ThermalReceiptPayload {
+        const productItems = (saleData.items || []).map((item) => ({
+            name: `${getProductName(item.product_id)} (${getUnitName(item.unit_id)})`,
+            quantity: item.amount,
+            unit_price: item.per_price,
+            line_total: item.total,
+        }));
+        const serviceItems = (saleData.service_items || []).map((si) => ({
+            name: si.name,
+            quantity: si.quantity,
+            unit_price: si.price,
+            line_total: si.total,
+        }));
+        return {
+            company_name: companySettings?.name ?? null,
+            sale_id: saleData.sale.id,
+            sale_date: saleData.sale.date,
+            total_amount: saleData.sale.total_amount,
+            paid_amount: saleData.sale.paid_amount,
+            order_discount_amount: saleData.sale.order_discount_amount ?? 0,
+            notes: saleData.sale.notes ?? null,
+            customer_name: customer.full_name,
+            items: [...productItems, ...serviceItems],
+            currency_label: currencyName ?? "",
+        };
+    }
+
+    async function handleThermalPrint(ip?: string, port?: number) {
+        const useIp = ip?.trim() || printerIp.trim();
+        const usePort = port ?? (printerPort ? parseInt(printerPort, 10) : 9100);
+        if (!useIp) {
+            toast.error("آدرس IP چاپگر را وارد کنید");
+            return;
+        }
+        setThermalPrinting(true);
+        try {
+            const payload = buildThermalPayload();
+            await printSaleReceiptThermal(payload, useIp, isNaN(usePort) ? 9100 : usePort);
+            toast.success("چاپ حرارتی با موفقیت ارسال شد");
+            if (showPrinterModal && savePrinterForNextTime) {
+                setStoredThermalPrinter(useIp, isNaN(usePort) ? 9100 : usePort);
+            }
+            setShowPrinterModal(false);
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : String(e);
+            toast.error(msg || "خطا در اتصال به چاپگر");
+        } finally {
+            setThermalPrinting(false);
+        }
+    }
+
+    function openPrinterConfig() {
+        const stored = getStoredThermalPrinter();
+        setPrinterIp(stored?.ip ?? "");
+        setPrinterPort(stored ? String(stored.port) : "9100");
+        setSavePrinterForNextTime(true);
+        setShowPrinterModal(true);
+    }
+
+    async function onThermalPrintClick() {
+        const stored = getStoredThermalPrinter();
+        if (stored) {
+            await handleThermalPrint(stored.ip, stored.port);
+        } else {
+            setPrinterIp("");
+            setPrinterPort("9100");
+            setSavePrinterForNextTime(true);
+            setShowPrinterModal(true);
+        }
+    }
 
     const formatDate = (dateString: string) => {
         if (!dateString) return "";
@@ -521,16 +604,37 @@ export default function SaleInvoice({
                             )}
                             <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">فاکتور فروش</h2>
                         </div>
-                        <button
-                            type="button"
-                            onClick={handlePrint}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2h-2a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                            </svg>
-                            چاپ فاکتور
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handlePrint}
+                                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2h-2a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                </svg>
+                                چاپ فاکتور
+                            </button>
+                            <button
+                                type="button"
+                                onClick={onThermalPrintClick}
+                                disabled={thermalPrinting}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg transition-all"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                {thermalPrinting ? "در حال چاپ..." : "چاپ حرارتی"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={openPrinterConfig}
+                                className="text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 underline"
+                                title="تنظیم چاپگر حرارتی"
+                            >
+                                تنظیم چاپگر
+                            </button>
+                        </div>
                     </div>
 
                     <div className="invoice-print-area">
@@ -766,6 +870,62 @@ export default function SaleInvoice({
                 </div>
                 </div>
             </div>
+
+            {showPrinterModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" dir="rtl" onClick={() => !thermalPrinting && setShowPrinterModal(false)}>
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">تنظیم چاپگر حرارتی</h3>
+                        <div className="space-y-3 mb-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">آدرس IP چاپگر *</label>
+                                <input
+                                    type="text"
+                                    value={printerIp}
+                                    onChange={(e) => setPrinterIp(e.target.value)}
+                                    placeholder="192.168.1.100"
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">پورت (پیش‌فرض 9100)</label>
+                                <input
+                                    type="text"
+                                    value={printerPort}
+                                    onChange={(e) => setPrinterPort(e.target.value)}
+                                    placeholder="9100"
+                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                                />
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    checked={savePrinterForNextTime}
+                                    onChange={(e) => setSavePrinterForNextTime(e.target.checked)}
+                                    className="rounded border-gray-300"
+                                />
+                                <span className="text-sm text-gray-700 dark:text-gray-300">ذخیره برای دفعات بعد</span>
+                            </label>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                onClick={() => !thermalPrinting && setShowPrinterModal(false)}
+                                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                            >
+                                انصراف
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleThermalPrint()}
+                                disabled={thermalPrinting || !printerIp.trim()}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium"
+                            >
+                                {thermalPrinting ? "در حال چاپ..." : "چاپ"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }
