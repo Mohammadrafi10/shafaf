@@ -2098,7 +2098,7 @@ fn create_purchase(
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
     // Generate batch number
-    let batch_number_sql = "SELECT COALESCE(MAX(CAST(SUBSTR(batch_number, 7) AS INTEGER)), 0) + 1 FROM purchases WHERE batch_number LIKE 'BATCH-%'";
+    let batch_number_sql = "SELECT COALESCE(MAX(CAST(SUBSTRING(batch_number, 7) AS SIGNED)), 0) + 1 FROM purchases WHERE batch_number LIKE 'BATCH-%'";
     let batch_numbers = db
         .query(batch_number_sql, (), |row| {
             Ok(row_get::<i64>(row, 0)?)
