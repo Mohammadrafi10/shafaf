@@ -694,16 +694,7 @@ function App() {
       </motion.header>
 
       <main className="relative max-w-7xl mx-auto px-6 py-8 z-10">
-        {/* Compact dashboard greeting */}
-        <motion.p
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="text-gray-600 dark:text-gray-400 text-sm mb-6"
-        >
-          خوش آمدید، <span className="font-semibold text-gray-800 dark:text-gray-200">{user.username}</span>
-        </motion.p>
-
+      
         {/* Quick Stats */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
