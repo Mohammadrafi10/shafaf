@@ -3423,7 +3423,8 @@ fn get_sales(
     if let Some(s) = search {
         if !s.trim().is_empty() {
             let search_term = format!("%{}%", s);
-            where_clause = "WHERE (CAST(s.date AS TEXT) LIKE ? OR s.notes LIKE ? OR s.customer_id IN (SELECT id FROM customers WHERE full_name LIKE ? OR phone LIKE ?))".to_string();
+            // MySQL doesn't support CAST(... AS TEXT) (SQLite-ism). Use CHAR for LIKE searches.
+            where_clause = "WHERE (CAST(s.date AS CHAR) LIKE ? OR s.notes LIKE ? OR s.customer_id IN (SELECT id FROM customers WHERE full_name LIKE ? OR phone LIKE ?))".to_string();
             params.push(serde_json::Value::String(search_term.clone()));
             params.push(serde_json::Value::String(search_term.clone()));
             params.push(serde_json::Value::String(search_term.clone()));
