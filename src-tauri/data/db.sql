@@ -341,6 +341,7 @@ CREATE TABLE IF NOT EXISTS company_settings (
     phone TEXT,
     address TEXT,
     font TEXT,
+    auto_backup_dir TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
