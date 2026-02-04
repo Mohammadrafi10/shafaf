@@ -6,6 +6,7 @@ use db::Database;
 use mysql::prelude::*;
 use mysql::{Opts, OptsBuilder, Value};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -3046,6 +3047,29 @@ pub struct ProductBatch {
     pub remaining_quantity: f64,
 }
 
+/// Product-level stock (computed from batches in base units, optionally in a specific unit).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProductStock {
+    pub product_id: i64,
+    pub total_base: f64,
+    pub total_in_unit: Option<f64>,
+}
+
+/// One row for stock report: batch with product info and remaining quantity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StockBatchRow {
+    pub product_id: i64,
+    pub product_name: String,
+    pub purchase_item_id: i64,
+    pub purchase_id: i64,
+    pub batch_number: Option<String>,
+    pub purchase_date: String,
+    pub expiry_date: Option<String>,
+    pub unit_name: String,
+    pub amount: f64,
+    pub remaining_quantity: f64,
+}
+
 // SalePayment Model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SalePayment {
@@ -3090,6 +3114,52 @@ fn init_sales_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Stri
 /// Round to 2 decimal places.
 fn round2(x: f64) -> f64 {
     (x * 100.0).round() / 100.0
+}
+
+/// Round to 6 decimal places (for stock quantities).
+fn round6(x: f64) -> f64 {
+    (x * 1_000_000.0).round() / 1_000_000.0
+}
+
+/// Get unit ratio for conversion to base units. Base unit has ratio 1; others have ratio = base units per 1 of this unit. Returns 1.0 if unit not found or ratio is null.
+fn get_unit_ratio(db: &Database, unit_id: i64) -> Result<f64, String> {
+    let rows = db
+        .query("SELECT COALESCE(ratio, 1) FROM units WHERE id = ?", one_param(unit_id), |row| {
+            Ok(row_get::<f64>(row, 0)?)
+        })
+        .map_err(|e| format!("Failed to get unit ratio: {}", e))?;
+    Ok(rows.first().copied().unwrap_or(1.0))
+}
+
+/// Convert amount in given unit to base units (amount * ratio). Used for stock aggregation and validation.
+fn amount_to_base(db: &Database, amount: f64, unit_id: i64) -> Result<f64, String> {
+    let ratio = get_unit_ratio(db, unit_id)?;
+    Ok(amount * ratio)
+}
+
+/// Get remaining quantity for a batch in base units (for validation). Returns pi_base - sold_base.
+fn get_batch_remaining_base(db: &Database, purchase_item_id: i64) -> Result<f64, String> {
+    let pi_row = db
+        .query(
+            "SELECT pi.amount, pi.unit_id FROM purchase_items pi WHERE pi.id = ?",
+            one_param(purchase_item_id),
+            |row| Ok((row_get::<f64>(row, 0)?, row_get::<i64>(row, 1)?)),
+        )
+        .map_err(|e| format!("Failed to get purchase item: {}", e))?;
+    let (pi_amount, pi_unit_id) = pi_row.first().ok_or("Purchase item not found")?;
+    let pi_base = amount_to_base(db, *pi_amount, *pi_unit_id)?;
+    let sold: Vec<f64> = db
+        .query(
+            "SELECT si.amount, si.unit_id FROM sale_items si WHERE si.purchase_item_id = ?",
+            one_param(purchase_item_id),
+            |row| Ok((row_get::<f64>(row, 0)?, row_get::<i64>(row, 1)?)),
+        )
+        .map_err(|e| format!("Failed to get sale items: {}", e))?
+        .into_iter()
+        .map(|(amt, uid)| amount_to_base(db, amt, uid).unwrap_or(0.0))
+        .collect();
+    let sold_base: f64 = sold.iter().sum();
+    Ok(round6((pi_base - sold_base).max(0.0)))
 }
 
 /// Compute line or order discount amount. type_ = "percent" | "fixed", value = percent 0-100 or fixed amount.
@@ -3226,6 +3296,20 @@ fn create_sale(
             &date,
         ))
             .map_err(|e| format!("Failed to insert initial payment: {}", e))?;
+    }
+
+    // Validate batch stock for each sale item (unit-precise)
+    let mut batch_used_base: HashMap<i64, f64> = HashMap::new();
+    for (product_id, unit_id, per_price, amount, purchase_item_id, sale_type, discount_type, discount_value) in &items {
+        if let Some(pid) = purchase_item_id {
+            let remaining_base = get_batch_remaining_base(db, *pid)?;
+            let used_so_far = batch_used_base.get(pid).copied().unwrap_or(0.0);
+            let this_base = amount_to_base(db, *amount, *unit_id)?;
+            if used_so_far + this_base > remaining_base + 1e-9 {
+                return Err("موجودی دسته کافی نیست (Insufficient batch stock)".to_string());
+            }
+            batch_used_base.insert(*pid, used_so_far + this_base);
+        }
     }
 
     // Insert sale items (with discount_type, discount_value, total = line total after discount)
@@ -3682,6 +3766,14 @@ fn create_sale_item(
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
+    if let Some(pid) = purchase_item_id {
+        let sale_amount_base = amount_to_base(db, amount, unit_id)?;
+        let remaining_base = get_batch_remaining_base(db, pid)?;
+        if sale_amount_base > remaining_base + 1e-9 {
+            return Err("موجودی دسته کافی نیست (Insufficient batch stock)".to_string());
+        }
+    }
+
     let line_subtotal = per_price * amount;
     let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), discount_value);
     let total = round2(line_subtotal - disc);
@@ -3763,37 +3855,45 @@ fn get_sale_items(db_state: State<'_, Mutex<Option<Database>>>, sale_id: i64) ->
     Ok(items)
 }
 
-/// Get all batches for a product (from purchase_items)
+/// Get all batches for a product (from purchase_items). Remaining quantity is computed with unit conversion (base units) so sale and purchase can use different units.
 #[tauri::command]
 fn get_product_batches(db_state: State<'_, Mutex<Option<Database>>>, product_id: i64) -> Result<Vec<ProductBatch>, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    // Query purchase_items with purchase info and calculate remaining quantity
+    // Unit-precise: convert to base (amount * ratio), subtract sold_base, convert back to batch unit. COALESCE(ratio,1) for units without group.
     let sql = "
         SELECT 
-            pi.id as purchase_item_id,
+            pi.id AS purchase_item_id,
             pi.purchase_id,
             p.batch_number,
-            p.date as purchase_date,
+            p.date AS purchase_date,
             pi.expiry_date,
             pi.per_price,
             pi.per_unit,
             pi.wholesale_price,
             pi.retail_price,
             pi.amount,
-            (pi.amount - COALESCE(SUM(si.amount), 0)) as remaining_quantity
+            ROUND(((pi.amount * COALESCE(u_pi.ratio, 1)) - COALESCE(sold.sold_base, 0)) / COALESCE(u_pi.ratio, 1), 6) AS remaining_quantity
         FROM purchase_items pi
         INNER JOIN purchases p ON pi.purchase_id = p.id
-        LEFT JOIN sale_items si ON si.purchase_item_id = pi.id
+        LEFT JOIN units u_pi ON u_pi.id = pi.unit_id
+        LEFT JOIN (
+            SELECT si.purchase_item_id,
+                SUM(si.amount * COALESCE(u_si.ratio, 1)) AS sold_base
+            FROM sale_items si
+            LEFT JOIN units u_si ON u_si.id = si.unit_id
+            WHERE si.purchase_item_id IS NOT NULL
+            GROUP BY si.purchase_item_id
+        ) sold ON sold.purchase_item_id = pi.id
         WHERE pi.product_id = ?
-        GROUP BY pi.id, pi.purchase_id, p.batch_number, p.date, pi.expiry_date, pi.per_price, pi.per_unit, pi.wholesale_price, pi.retail_price, pi.amount
         HAVING remaining_quantity > 0
         ORDER BY p.date ASC, pi.id ASC
     ";
 
     let batches = db
         .query(sql, one_param(product_id), |row| {
+            let remaining: f64 = row_get(row, 10)?;
             Ok(ProductBatch {
                 purchase_item_id: row_get(row, 0)?,
                 purchase_id: row_get(row, 1)?,
@@ -3805,12 +3905,115 @@ fn get_product_batches(db_state: State<'_, Mutex<Option<Database>>>, product_id:
                 wholesale_price: row_get(row, 7)?,
                 retail_price: row_get(row, 8)?,
                 amount: row_get(row, 9)?,
-                remaining_quantity: row_get(row, 10)?,
+                remaining_quantity: round6(remaining),
             })
         })
         .map_err(|e| format!("Failed to fetch product batches: {}", e))?;
 
     Ok(batches)
+}
+
+/// Get product-level stock (sum of batch remaining in base units). If unit_id is provided, also return total in that unit.
+#[tauri::command]
+fn get_product_stock(
+    db_state: State<'_, Mutex<Option<Database>>>,
+    product_id: i64,
+    unit_id: Option<i64>,
+) -> Result<ProductStock, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let sql = "
+        SELECT COALESCE(SUM(
+            GREATEST(0, (pi.amount * COALESCE(u_pi.ratio, 1)) - COALESCE(sold.sold_base, 0))
+        ), 0) AS total_base
+        FROM purchase_items pi
+        LEFT JOIN units u_pi ON u_pi.id = pi.unit_id
+        LEFT JOIN (
+            SELECT si.purchase_item_id,
+                SUM(si.amount * COALESCE(u_si.ratio, 1)) AS sold_base
+            FROM sale_items si
+            LEFT JOIN units u_si ON u_si.id = si.unit_id
+            WHERE si.purchase_item_id IS NOT NULL
+            GROUP BY si.purchase_item_id
+        ) sold ON sold.purchase_item_id = pi.id
+        WHERE pi.product_id = ?
+    ";
+    let rows = db
+        .query(sql, one_param(product_id), |row| Ok(row_get::<f64>(row, 0)?))
+        .map_err(|e| format!("Failed to get product stock: {}", e))?;
+    let total_base = round6(rows.first().copied().unwrap_or(0.0));
+
+    let total_in_unit = if let Some(uid) = unit_id {
+        let ratio = get_unit_ratio(db, uid)?;
+        Some(if ratio.abs() < 1e-12 {
+            0.0
+        } else {
+            round6(total_base / ratio)
+        })
+    } else {
+        None
+    };
+
+    Ok(ProductStock {
+        product_id,
+        total_base,
+        total_in_unit,
+    })
+}
+
+/// Get stock report: all batches with remaining > 0, with product name and unit. Unit-precise remaining.
+#[tauri::command]
+fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<Vec<StockBatchRow>, String> {
+    let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    let sql = "
+        SELECT 
+            pi.product_id,
+            COALESCE(pr.name, '') AS product_name,
+            pi.id AS purchase_item_id,
+            pi.purchase_id,
+            p.batch_number,
+            p.date AS purchase_date,
+            pi.expiry_date,
+            COALESCE(u_pi.name, '') AS unit_name,
+            pi.amount,
+            ROUND(((pi.amount * COALESCE(u_pi.ratio, 1)) - COALESCE(sold.sold_base, 0)) / COALESCE(u_pi.ratio, 1), 6) AS remaining_quantity
+        FROM purchase_items pi
+        INNER JOIN purchases p ON pi.purchase_id = p.id
+        LEFT JOIN units u_pi ON u_pi.id = pi.unit_id
+        LEFT JOIN products pr ON pr.id = pi.product_id
+        LEFT JOIN (
+            SELECT si.purchase_item_id,
+                SUM(si.amount * COALESCE(u_si.ratio, 1)) AS sold_base
+            FROM sale_items si
+            LEFT JOIN units u_si ON u_si.id = si.unit_id
+            WHERE si.purchase_item_id IS NOT NULL
+            GROUP BY si.purchase_item_id
+        ) sold ON sold.purchase_item_id = pi.id
+        HAVING remaining_quantity > 0
+        ORDER BY pr.name ASC, p.date ASC, pi.id ASC
+    ";
+    let rows = db
+        .query(sql, (), |row| {
+            let remaining: f64 = row_get(row, 10)?;
+            Ok(StockBatchRow {
+                product_id: row_get(row, 0)?,
+                product_name: row_get(row, 1)?,
+                purchase_item_id: row_get(row, 2)?,
+                purchase_id: row_get(row, 3)?,
+                batch_number: row_get(row, 4)?,
+                purchase_date: row_get(row, 5)?,
+                expiry_date: row_get(row, 6)?,
+                unit_name: row_get(row, 7)?,
+                amount: row_get(row, 8)?,
+                remaining_quantity: round6(remaining),
+            })
+        })
+        .map_err(|e| format!("Failed to get stock by batches: {}", e))?;
+
+    Ok(rows)
 }
 
 /// Update a sale item
@@ -3829,6 +4032,22 @@ fn update_sale_item(
 ) -> Result<SaleItem, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
+
+    if let Some(pid) = purchase_item_id {
+        let current_row = db
+            .query("SELECT amount, unit_id, purchase_item_id FROM sale_items WHERE id = ?", one_param(id), |row| {
+                Ok((row_get::<f64>(row, 0)?, row_get::<i64>(row, 1)?, row_get::<Option<i64>>(row, 2)?))
+            })
+            .map_err(|e| format!("Failed to get sale item: {}", e))?;
+        let add_back = current_row.first().and_then(|(cur_amt, cur_uid, cur_pid)| {
+            if *cur_pid == Some(pid) { Some(amount_to_base(db, *cur_amt, *cur_uid).unwrap_or(0.0)) } else { Some(0.0) }
+        }).unwrap_or(0.0);
+        let remaining_base = get_batch_remaining_base(db, pid)?;
+        let sale_amount_base = amount_to_base(db, amount, unit_id)?;
+        if sale_amount_base > remaining_base + add_back + 1e-9 {
+            return Err("موجودی دسته کافی نیست (Insufficient batch stock)".to_string());
+        }
+    }
 
     let line_subtotal = per_price * amount;
     let disc = compute_discount_amount(line_subtotal, discount_type.as_ref(), discount_value);
@@ -7879,6 +8098,8 @@ pub fn run() {
             create_sale_item,
             get_sale_items,
             get_product_batches,
+            get_product_stock,
+            get_stock_by_batches,
             update_sale_item,
             delete_sale_item,
             create_sale_payment,

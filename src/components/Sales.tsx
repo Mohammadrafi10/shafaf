@@ -883,8 +883,9 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             }
             handleCloseModal();
             await loadData();
-        } catch (error: any) {
-            toast.error(editingSale ? translations.errors.update : translations.errors.create);
+        } catch (error: unknown) {
+            const msg = typeof error === "string" ? error : (error as Error)?.message;
+            toast.error(msg || (editingSale ? translations.errors.update : translations.errors.create));
             console.error("Error saving sale:", error);
         } finally {
             setLoading(false);

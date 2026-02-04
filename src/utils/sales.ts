@@ -614,3 +614,39 @@ export async function deleteSaleAdditionalCost(id: number): Promise<string> {
 export async function getProductBatches(productId: number): Promise<ProductBatch[]> {
     return await invoke<ProductBatch[]>("get_product_batches", { productId });
 }
+
+export interface ProductStock {
+    product_id: number;
+    total_base: number;
+    total_in_unit: number | null;
+}
+
+/**
+ * Get product-level stock (sum of batch remaining). If unitId is provided, total_in_unit is set.
+ */
+export async function getProductStock(productId: number, unitId?: number | null): Promise<ProductStock> {
+    return await invoke<ProductStock>("get_product_stock", {
+        productId,
+        unitId: unitId ?? undefined,
+    });
+}
+
+export interface StockBatchRow {
+    product_id: number;
+    product_name: string;
+    purchase_item_id: number;
+    purchase_id: number;
+    batch_number: string | null;
+    purchase_date: string;
+    expiry_date: string | null;
+    unit_name: string;
+    amount: number;
+    remaining_quantity: number;
+}
+
+/**
+ * Get stock report: all batches with remaining > 0.
+ */
+export async function getStockByBatches(): Promise<StockBatchRow[]> {
+    return await invoke<StockBatchRow[]>("get_stock_by_batches");
+}
