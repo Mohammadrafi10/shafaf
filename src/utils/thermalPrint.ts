@@ -30,7 +30,7 @@ export function getStoredThermalPrinter(): { ip: string; port: number } | null {
         if (!ip) return null;
         const portStr = localStorage.getItem(STORAGE_KEY_PORT);
         const port = portStr ? parseInt(portStr, 10) : DEFAULT_PORT;
-        return { ip, isNaN(port) ? DEFAULT_PORT : port };
+        return { ip, port: isNaN(port) ? DEFAULT_PORT : port };
     } catch {
         return null;
     }

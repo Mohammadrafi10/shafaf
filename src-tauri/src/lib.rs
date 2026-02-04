@@ -8031,6 +8031,145 @@ fn migrate_existing_data(db_state: State<'_, Mutex<Option<Database>>>) -> Result
     Ok(format!("Migration completed. Migrated {} account balances.", migrated_count))
 }
 
+// ---- Thermal receipt print (ESC/POS) ----
+const RECEIPT_WIDTH: usize = 48;
+
+fn truncate_receipt(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max - 1).collect::<String>())
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ThermalReceiptItem {
+    name: String,
+    quantity: f64,
+    unit_price: f64,
+    line_total: f64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ThermalReceiptPayload {
+    company_name: Option<String>,
+    sale_id: i64,
+    sale_date: String,
+    total_amount: f64,
+    paid_amount: f64,
+    order_discount_amount: f64,
+    notes: Option<String>,
+    customer_name: String,
+    items: Vec<ThermalReceiptItem>,
+    currency_label: String,
+}
+
+#[tauri::command]
+fn print_sale_receipt_thermal(
+    payload: ThermalReceiptPayload,
+    printer_ip: String,
+    printer_port: Option<u16>,
+) -> Result<(), String> {
+    use escpos::driver::NetworkDriver;
+    use escpos::printer::Printer;
+    use escpos::utils::{JustifyMode, Protocol};
+    use std::time::Duration;
+
+    let port = printer_port.unwrap_or(9100);
+    let driver = NetworkDriver::open(printer_ip.as_str(), port, Some(Duration::from_secs(5)))
+        .map_err(|e| format!("Printer not reachable: {}", e))?;
+
+    let mut printer = Printer::new(driver, Protocol::default(), None);
+
+    printer
+        .init()
+        .map_err(|e| format!("Printer init failed: {}", e))?;
+
+    if let Some(ref name) = payload.company_name {
+        printer
+            .justify(JustifyMode::CENTER)
+            .map_err(|e| format!("Printer error: {}", e))?
+            .writeln(&truncate_receipt(name, RECEIPT_WIDTH))
+            .map_err(|e| format!("Printer error: {}", e))?;
+    }
+    printer
+        .feed()
+        .map_err(|e| format!("Printer error: {}", e))?;
+
+    printer
+        .justify(JustifyMode::LEFT)
+        .map_err(|e| format!("Printer error: {}", e))?
+        .writeln(&truncate_receipt(&payload.sale_date, RECEIPT_WIDTH))
+        .map_err(|e| format!("Printer error: {}", e))?
+        .writeln(&format!("Sale #{}", payload.sale_id))
+        .map_err(|e| format!("Printer error: {}", e))?
+        .writeln(&truncate_receipt(&payload.customer_name, RECEIPT_WIDTH))
+        .map_err(|e| format!("Printer error: {}", e))?
+        .writeln("--------------------------------")
+        .map_err(|e| format!("Printer error: {}", e))?;
+
+    for item in &payload.items {
+        printer
+            .writeln(&truncate_receipt(&item.name, RECEIPT_WIDTH))
+            .map_err(|e| format!("Printer error: {}", e))?;
+        let line = format!(
+            "  {} x {} = {}",
+            item.quantity,
+            format!("{:.2}", item.unit_price),
+            format!("{:.2}", item.line_total)
+        );
+        printer
+            .writeln(&line)
+            .map_err(|e| format!("Printer error: {}", e))?;
+    }
+
+    printer
+        .writeln("--------------------------------")
+        .map_err(|e| format!("Printer error: {}", e))?;
+
+    let subtotal = payload.items.iter().map(|i| i.line_total).sum::<f64>();
+    let currency = if payload.currency_label.is_empty() {
+        ""
+    } else {
+        payload.currency_label.as_str()
+    };
+    printer
+        .writeln(&format!("Subtotal: {:.2} {}", subtotal, currency))
+        .map_err(|e| format!("Printer error: {}", e))?;
+    if payload.order_discount_amount > 0.0 {
+        printer
+            .writeln(&format!(
+                "Discount: {:.2} {}",
+                payload.order_discount_amount, currency
+            ))
+            .map_err(|e| format!("Printer error: {}", e))?;
+    }
+    printer
+        .writeln(&format!("Total: {:.2} {}", payload.total_amount, currency))
+        .map_err(|e| format!("Printer error: {}", e))?
+        .writeln(&format!("Paid: {:.2} {}", payload.paid_amount, currency))
+        .map_err(|e| format!("Printer error: {}", e))?;
+    let remaining = payload.total_amount - payload.paid_amount;
+    if remaining > 0.0 {
+        printer
+            .writeln(&format!("Remaining: {:.2} {}", remaining, currency))
+            .map_err(|e| format!("Printer error: {}", e))?;
+    }
+
+    printer
+        .feed()
+        .map_err(|e| format!("Printer error: {}", e))?
+        .justify(JustifyMode::CENTER)
+        .map_err(|e| format!("Printer error: {}", e))?
+        .writeln("Thank you / متشکرم")
+        .map_err(|e| format!("Printer error: {}", e))?
+        .print_cut()
+        .map_err(|e| format!("Printer error: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Load environment variables at startup
@@ -8237,7 +8376,8 @@ pub fn run() {
             hash_password,
             verify_password,
             store_puter_credentials,
-            get_puter_credentials
+            get_puter_credentials,
+            print_sale_receipt_thermal
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
