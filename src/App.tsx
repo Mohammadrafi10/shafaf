@@ -4,18 +4,14 @@ import {
   openDatabase,
   isDatabaseOpen,
   createDatabase,
-  saveBackupToPath,
-  restoreDatabase,
   createDailyBackup,
 } from "./utils/db";
-import { save, open } from "@tauri-apps/plugin-dialog";
-import toast from "react-hot-toast";
 import { getDashboardStats, formatPersianNumber, formatLargeNumber } from "./utils/dashboard";
 import { playClickSound } from "./utils/sound";
 import { getCompanySettings, initCompanySettingsTable, type CompanySettings as CompanySettingsType } from "./utils/company";
 import { applyFont } from "./utils/fonts";
 import { isLicenseValid } from "./utils/license";
-import { checkForUpdatesOnStartup, checkForUpdates, installUpdate } from "./utils/updater";
+import { checkForUpdatesOnStartup } from "./utils/updater";
 import { startCredentialSync } from "./utils/puter";
 import Login from "./components/Login";
 import License from "./components/License";
@@ -127,13 +123,6 @@ function App() {
     currencyName?: string;
   } | null>(null);
   const [aiCreateUpdateOpen, setAiCreateUpdateOpen] = useState(false);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<{
-    available: boolean;
-    version?: string;
-    date?: string;
-    body?: string;
-  } | null>(null);
 
   // Sort dashboard features by usage (most used first)
   const sortedDashboardFeatures = useMemo(() => {
@@ -388,105 +377,6 @@ function App() {
   const handleLogout = () => {
     setUser(null);
     setCurrentPage("dashboard");
-  };
-
-  const handleBackupDatabase = async () => {
-    try {
-      // Open save dialog first so user picks where to save
-      const filePath = await save({
-        defaultPath: `db-backup-${new Date().toISOString().split('T')[0]}.sql`,
-        filters: [{
-          name: 'MySQL Dump',
-          extensions: ['sql']
-        }]
-      });
-
-      if (filePath) {
-        // Backend copies the database to the selected path (avoids fs plugin scope limits)
-        await saveBackupToPath(filePath);
-        toast.success("پشتیبان‌گیری با موفقیت انجام شد");
-      }
-    } catch (error: any) {
-      console.error("Error backing up database:", error);
-      if (error.message && !error.message.includes("cancelled")) {
-        toast.error("خطا در پشتیبان‌گیری از پایگاه داده");
-      }
-    }
-  };
-
-  const handleRestoreDatabase = async () => {
-    try {
-      // Open file dialog to select backup file
-      const filePath = await open({
-        filters: [{
-          name: 'MySQL Dump',
-          extensions: ['sql']
-        }],
-        title: 'انتخاب فایل پشتیبان'
-      });
-
-      if (filePath && typeof filePath === 'string') {
-        // Confirm with user
-        const confirmed = window.confirm(
-          "آیا مطمئن هستید که می‌خواهید پایگاه داده را بازگردانی کنید؟ این عمل تمام داده‌های فعلی را جایگزین می‌کند."
-        );
-
-        if (confirmed) {
-          await restoreDatabase(filePath);
-          toast.success("بازگردانی پایگاه داده با موفقیت انجام شد");
-          
-          // Reload the page to refresh all data
-          window.location.reload();
-        }
-      }
-    } catch (error: any) {
-      console.error("Error restoring database:", error);
-      if (error.message && !error.message.includes("cancelled")) {
-        toast.error("خطا در بازگردانی پایگاه داده");
-      }
-    }
-  };
-
-  const handleCheckForUpdates = async () => {
-    try {
-      setCheckingUpdate(true);
-      const updateInfo = await checkForUpdates();
-      
-      if (updateInfo?.available) {
-        setUpdateInfo(updateInfo);
-        toast.success(
-          `بروزرسانی جدید موجود است! نسخه ${updateInfo.version}`,
-          {
-            duration: 5000,
-          }
-        );
-        // Show install button separately
-        setTimeout(() => {
-          if (window.confirm(`بروزرسانی نسخه ${updateInfo.version} موجود است. آیا می‌خواهید نصب کنید؟`)) {
-            handleInstallUpdate();
-          }
-        }, 100);
-      } else {
-        setUpdateInfo(null);
-        toast.success("شما از آخرین نسخه استفاده می‌کنید");
-      }
-    } catch (error: any) {
-      console.error("Error checking for updates:", error);
-      toast.error("خطا در بررسی بروزرسانی");
-    } finally {
-      setCheckingUpdate(false);
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    try {
-      toast.loading("در حال دانلود و نصب بروزرسانی...", { id: "update-install" });
-      await installUpdate();
-      toast.success("بروزرسانی با موفقیت نصب شد. برنامه در حال راه‌اندازی مجدد است...", { id: "update-install" });
-    } catch (error: any) {
-      console.error("Error installing update:", error);
-      toast.error("خطا در نصب بروزرسانی", { id: "update-install" });
-    }
   };
 
   // Show currency page if selected
@@ -755,53 +645,6 @@ function App() {
                 <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
               </motion.button>
               
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleBackupDatabase}
-                className="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-500 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 group relative"
-                title="پشتیبان‌گیری از پایگاه داده"
-              >
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4 4m4-4V12" />
-                </svg>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleRestoreDatabase}
-                className="w-12 h-12 bg-gradient-to-br from-green-500 to-emerald-500 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 group relative"
-                title="بازگردانی پایگاه داده"
-              >
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleCheckForUpdates}
-                disabled={checkingUpdate}
-                className="w-12 h-12 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 group relative disabled:opacity-50 disabled:cursor-not-allowed"
-                title="بررسی بروزرسانی"
-              >
-                {checkingUpdate ? (
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="w-6 h-6 border-2 border-white border-t-transparent rounded-full"
-                  />
-                ) : (
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                )}
-                {updateInfo?.available && (
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xs font-bold">!</span>
-                  </div>
-                )}
-              </motion.button>
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}

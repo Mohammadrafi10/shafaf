@@ -297,6 +297,14 @@ fn save_backup_to_path(app: AppHandle, dest_path: String) -> Result<String, Stri
     Ok(dest_path)
 }
 
+/// Get the folder path where automatic daily backups are stored.
+#[tauri::command]
+fn get_backups_dir(app: AppHandle) -> Result<String, String> {
+    let data_dir = get_app_data_dir(&app)?;
+    let backups_dir = data_dir.join("backups");
+    Ok(backups_dir.to_string_lossy().to_string())
+}
+
 /// Create a daily backup in the app data folder (backups subfolder).
 #[tauri::command]
 fn create_daily_backup(app: AppHandle) -> Result<String, String> {
@@ -7815,6 +7823,7 @@ pub fn run() {
             db_query,
             get_database_path,
             backup_database,
+            get_backups_dir,
             save_backup_to_path,
             create_daily_backup,
             restore_database,

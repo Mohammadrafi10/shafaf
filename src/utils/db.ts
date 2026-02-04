@@ -92,6 +92,14 @@ export async function saveBackupToPath(destPath: string): Promise<string> {
 }
 
 /**
+ * Get the folder path where automatic daily backups are stored.
+ * @returns Promise with the backups directory path
+ */
+export async function getBackupsDir(): Promise<string> {
+  return await invoke<string>("get_backups_dir");
+}
+
+/**
  * Create a daily backup in the app data folder (backups subfolder). Used by the automatic daily backup scheduler.
  * @returns Promise with the backup file path
  */
