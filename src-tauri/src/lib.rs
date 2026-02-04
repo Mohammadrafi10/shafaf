@@ -3069,6 +3069,8 @@ pub struct StockBatchRow {
     pub amount: f64,
     pub remaining_quantity: f64,
     pub per_price: f64,
+    /// Total purchase cost of batch (amount * per_price).
+    pub total_purchase_cost: f64,
     pub cost_price: f64,
     pub retail_price: Option<f64>,
     pub wholesale_price: Option<f64>,
@@ -4014,6 +4016,8 @@ fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
             let cost_price: f64 = row_get(row, 11)?;
             let retail_price: Option<f64> = row_get(row, 12)?;
             let wholesale_price: Option<f64> = row_get(row, 13)?;
+            let amount: f64 = row_get(row, 8)?;
+            let total_purchase_cost = round2(amount * per_price);
             let stock_value = round2(cost_price * remaining);
             let sell_price = retail_price.unwrap_or(per_price);
             let potential_revenue_retail = round2(sell_price * remaining);
@@ -4032,9 +4036,10 @@ fn get_stock_by_batches(db_state: State<'_, Mutex<Option<Database>>>) -> Result<
                 purchase_date: row_get(row, 5)?,
                 expiry_date: row_get(row, 6)?,
                 unit_name: row_get(row, 7)?,
-                amount: row_get(row, 8)?,
+                amount,
                 remaining_quantity: round6(remaining),
                 per_price,
+                total_purchase_cost,
                 cost_price,
                 retail_price,
                 wholesale_price,

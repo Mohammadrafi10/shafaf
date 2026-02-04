@@ -643,6 +643,7 @@ export interface StockBatchRow {
     amount: number;
     remaining_quantity: number;
     per_price: number;
+    total_purchase_cost: number;
     cost_price: number;
     retail_price: number | null;
     wholesale_price: number | null;

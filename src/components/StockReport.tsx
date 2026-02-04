@@ -23,6 +23,8 @@ const translations = {
     unit: "واحد",
     amount: "مقدار اولیه",
     remaining: "موجودی باقی‌مانده",
+    purchasePrice: "قیمت خرید (واحد)",
+    totalPurchaseCost: "مجموع هزینه خرید دسته",
     costPrice: "قیمت تمام شده",
     retailPrice: "قیمت خرده‌فروشی",
     stockValue: "ارزش موجودی",
@@ -137,6 +139,26 @@ export default function StockReport({ onBack }: StockReportProps) {
                     </span>
                 );
             },
+        },
+        {
+            key: "per_price" as const,
+            label: translations.purchasePrice,
+            sortable: false,
+            render: (r: RowWithId) => (
+                <span className="text-gray-700 dark:text-gray-300" dir="ltr">
+                    {Number(r.per_price).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </span>
+            ),
+        },
+        {
+            key: "total_purchase_cost" as const,
+            label: translations.totalPurchaseCost,
+            sortable: false,
+            render: (r: RowWithId) => (
+                <span className="font-medium text-gray-900 dark:text-white" dir="ltr">
+                    {Number(r.total_purchase_cost).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </span>
+            ),
         },
         {
             key: "cost_price" as const,

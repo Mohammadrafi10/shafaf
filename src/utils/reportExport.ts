@@ -262,6 +262,8 @@ const STOCK_EXPORT_COLUMNS: { key: keyof import("./sales").StockBatchRow; label:
   { key: "unit_name", label: "واحد" },
   { key: "amount", label: "مقدار اولیه" },
   { key: "remaining_quantity", label: "موجودی باقی‌مانده" },
+  { key: "per_price", label: "قیمت خرید (واحد)" },
+  { key: "total_purchase_cost", label: "مجموع هزینه خرید دسته" },
   { key: "cost_price", label: "قیمت تمام شده" },
   { key: "retail_price", label: "قیمت خرده‌فروشی" },
   { key: "stock_value", label: "ارزش موجودی" },
