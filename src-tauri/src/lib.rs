@@ -6309,8 +6309,8 @@ fn update_company_settings(
         ))
         .map_err(|e| format!("Failed to insert company settings: {}", e))?;
     } else {
-        // Update existing settings (update first row)
-        let update_sql = "UPDATE company_settings SET name = ?, logo = ?, phone = ?, address = ?, font = ?, auto_backup_dir = ?, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM company_settings ORDER BY id LIMIT 1)";
+        // Update existing settings (update first row). Use derived table to avoid MySQL ERROR 1093 (can't specify target table in FROM clause).
+        let update_sql = "UPDATE company_settings SET name = ?, logo = ?, phone = ?, address = ?, font = ?, auto_backup_dir = ?, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM (SELECT id FROM company_settings ORDER BY id LIMIT 1) AS _cs)";
         db.execute(update_sql, (
             &name,
             &logo,
