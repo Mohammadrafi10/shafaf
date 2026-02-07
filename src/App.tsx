@@ -218,34 +218,49 @@ function App() {
     };
   }, [user]);
 
-  // Check license validity on mount: stored key, local validation, then server (expiry)
-  useEffect(() => {
-    const checkLicense = async () => {
-      try {
-        setLicenseReason(null);
-        const storedKey = await getLicenseKey();
-        if (!storedKey) {
-          setLicenseValid(false);
-          setLicenseReason("invalid");
-          return;
-        }
-        const localValid = await validateLicenseKey(storedKey);
-        if (!localValid) {
-          setLicenseValid(false);
-          setLicenseReason("invalid");
-          return;
-        }
-        const serverResult = await checkLicenseWithServer();
-        setLicenseValid(serverResult.valid);
-        setLicenseReason(serverResult.reason ?? null);
-      } catch (error) {
-        console.error("Error checking license:", error);
+  const runLicenseCheck = useCallback(async () => {
+    try {
+      setLicenseReason(null);
+      const storedKey = await getLicenseKey();
+      if (!storedKey) {
         setLicenseValid(false);
         setLicenseReason("invalid");
+        return;
       }
-    };
-    checkLicense();
+      const localValid = await validateLicenseKey(storedKey);
+      if (!localValid) {
+        setLicenseValid(false);
+        setLicenseReason("invalid");
+        return;
+      }
+      const serverResult = await checkLicenseWithServer();
+      setLicenseValid(serverResult.valid);
+      setLicenseReason(serverResult.reason ?? null);
+    } catch (error) {
+      console.error("Error checking license:", error);
+      setLicenseValid(false);
+      setLicenseReason("invalid");
+    }
   }, []);
+
+  // Check license validity on mount: stored key, local validation, then server (expiry)
+  useEffect(() => {
+    runLicenseCheck();
+  }, [runLicenseCheck]);
+
+  // Re-check license periodically when user is logged in (every 5 minutes) and when window gains focus
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(runLicenseCheck, 5 * 60 * 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") runLicenseCheck();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [user, runLicenseCheck]);
 
   // Ensure database exists and is open before showing login.
   // If DB/tables exist, open; else create DB from env and run schema (db.sql).
@@ -343,6 +358,10 @@ function App() {
     const nowMs = Date.now();
     const days = Math.floor((expiryMs - nowMs) / (24 * 60 * 60 * 1000));
     setLicenseRemainingDays(days);
+    if (days <= 0) {
+      setLicenseValid(false);
+      setLicenseReason("expired");
+    }
   }, []);
 
   // Load license remaining days for navbar (when user is logged in)
@@ -435,7 +454,19 @@ function App() {
         />
       );
     }
-    return <Login onLoginSuccess={(user) => setUser(user)} />;
+    return (
+      <Login
+        onLoginSuccess={async (user) => {
+          const serverResult = await checkLicenseWithServer();
+          if (!serverResult.valid) {
+            setLicenseValid(false);
+            setLicenseReason(serverResult.reason ?? "invalid");
+            return;
+          }
+          setUser(user);
+        }}
+      />
+    );
   }
 
   const handleLogout = () => {
