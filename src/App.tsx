@@ -418,10 +418,11 @@ function App() {
     );
   }
 
-  if (!licenseValid) {
+  // Show activation page if license invalid or expired (hide entire dashboard when اعتبار لایسنس منقضی شده)
+  if (!licenseValid || licenseReason === "expired" || (licenseRemainingDays !== null && licenseRemainingDays <= 0)) {
     return (
       <License
-        reason={licenseReason}
+        reason={licenseReason === "expired" || (licenseRemainingDays !== null && licenseRemainingDays <= 0) ? "expired" : licenseReason ?? undefined}
         onLicenseValid={() => {
           setLicenseValid(true);
           setLicenseReason(null);
