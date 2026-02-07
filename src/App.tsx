@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
   openDatabase,
@@ -373,6 +373,17 @@ function App() {
     loadLicenseRemainingDays();
   }, [user, loadLicenseRemainingDays]);
 
+  // When user is logged in and days are null, try once to fetch expiry from server
+  const licenseDaysTriedRefresh = useRef(false);
+  useEffect(() => {
+    if (!user || licenseRemainingDays !== null || licenseDaysTriedRefresh.current) return;
+    licenseDaysTriedRefresh.current = true;
+    refreshLicenseExpiryFromServer()
+      .then(() => loadLicenseRemainingDays())
+      .catch(() => {})
+      .finally(() => { licenseDaysTriedRefresh.current = false; });
+  }, [user, licenseRemainingDays, loadLicenseRemainingDays]);
+
   const handleRefreshLicenseExpiry = useCallback(async () => {
     if (!user || licenseExpiryRefreshing) return;
     setLicenseExpiryRefreshing(true);
@@ -719,45 +730,46 @@ function App() {
 
             {/* License remaining days & User Profile */}
             <div className="flex items-center gap-4">
-              {licenseRemainingDays !== null && (
-                <div className="flex items-center gap-2">
-                  <div
-                    role={licenseRemainingDays <= 0 ? "button" : undefined}
-                    tabIndex={licenseRemainingDays <= 0 ? 0 : undefined}
-                    onClick={licenseRemainingDays <= 0 ? () => { setLicenseValid(false); setLicenseReason("expired"); } : undefined}
-                    onKeyDown={licenseRemainingDays <= 0 ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLicenseValid(false); setLicenseReason("expired"); } } : undefined}
-                    className={`px-4 py-2 rounded-xl border ${licenseRemainingDays <= 0 ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-800/40 focus:outline-none focus:ring-2 focus:ring-amber-500" : "bg-purple-100 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700"}`}
-                    dir="rtl"
-                  >
-                    <p className={`text-sm font-medium ${licenseRemainingDays <= 0 ? "text-amber-800 dark:text-amber-200" : "text-purple-700 dark:text-purple-300"}`}>
-                      {licenseRemainingDays <= 0
+              {/* Always show license counter in navbar when user is logged in */}
+              <div className="flex items-center gap-2">
+                <div
+                  role={licenseRemainingDays !== null && licenseRemainingDays <= 0 ? "button" : undefined}
+                  tabIndex={licenseRemainingDays !== null && licenseRemainingDays <= 0 ? 0 : undefined}
+                  onClick={licenseRemainingDays !== null && licenseRemainingDays <= 0 ? () => { setLicenseValid(false); setLicenseReason("expired"); } : undefined}
+                  onKeyDown={licenseRemainingDays !== null && licenseRemainingDays <= 0 ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLicenseValid(false); setLicenseReason("expired"); } } : undefined}
+                  className={`px-4 py-2 rounded-xl border ${licenseRemainingDays !== null && licenseRemainingDays <= 0 ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-800/40 focus:outline-none focus:ring-2 focus:ring-amber-500" : "bg-purple-100 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700"}`}
+                  dir="rtl"
+                >
+                  <p className={`text-sm font-medium ${licenseRemainingDays !== null && licenseRemainingDays <= 0 ? "text-amber-800 dark:text-amber-200" : "text-purple-700 dark:text-purple-300"}`}>
+                    {licenseRemainingDays === null
+                      ? "اعتبار لایسنس: در حال بارگذاری..."
+                      : licenseRemainingDays <= 0
                         ? "اعتبار لایسنس منقضی شده"
                         : `اعتبار لایسنس: ${formatPersianNumber(licenseRemainingDays)} روز باقی‌مانده`}
-                    </p>
-                  </div>
-                  <motion.button
-                    type="button"
-                    onClick={handleRefreshLicenseExpiry}
-                    disabled={licenseExpiryRefreshing}
-                    title="بروزرسانی اعتبار از سرور"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="p-2 rounded-lg bg-purple-200 dark:bg-purple-800/50 hover:bg-purple-300 dark:hover:bg-purple-700/50 disabled:opacity-50 text-purple-700 dark:text-purple-300"
-                  >
-                    {licenseExpiryRefreshing ? (
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full"
-                      />
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    )}
-                  </motion.button>
+                  </p>
                 </div>
-              )}
+                <motion.button
+                  type="button"
+                  onClick={handleRefreshLicenseExpiry}
+                  disabled={licenseExpiryRefreshing}
+                  title="بروزرسانی اعتبار از سرور"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="p-2 rounded-lg bg-purple-200 dark:bg-purple-800/50 hover:bg-purple-300 dark:hover:bg-purple-700/50 disabled:opacity-50 text-purple-700 dark:text-purple-300"
+                >
+                  {licenseExpiryRefreshing ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-4 h-4 border-2 border-purple-600 border-t-transparent rounded-full"
+                    />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  )}
+                </motion.button>
+              </div>
               <div className="text-left">
                 <p className="font-semibold text-gray-900 dark:text-white">{user.username}</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>
