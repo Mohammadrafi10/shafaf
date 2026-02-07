@@ -78,6 +78,18 @@ export async function checkLicenseWithServer(): Promise<LicenseCheckResult> {
 }
 
 /**
+ * Check a license key against the server (key as argument, not from keyring). Use on activation before storing.
+ */
+export async function checkLicenseKeyWithServer(licenseKey: string): Promise<LicenseCheckResult> {
+  try {
+    return await invoke<LicenseCheckResult>("check_license_key_with_server", { licenseKey });
+  } catch (error) {
+    console.error("Error checking license key with server:", error);
+    return { valid: false, reason: "invalid" };
+  }
+}
+
+/**
  * Check if a valid license exists: local validation and remote server check (expiry).
  * On startup, use this; if false, show License screen (or expired message).
  */

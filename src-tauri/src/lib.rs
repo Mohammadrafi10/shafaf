@@ -921,6 +921,12 @@ fn validate_license_key(entered_key: String) -> Result<bool, String> {
     license::validate_license_key(&entered_key)
 }
 
+/// Check a license key against the server (key passed as argument, not from keyring). Use on activation page before storing.
+#[tauri::command]
+fn check_license_key_with_server(license_key: String) -> Result<license_server::LicenseCheckResult, String> {
+    license_server::check_license_against_server(&license_key)
+}
+
 /// Check stored license: local expiry first (stored on this machine), then remote server. Returns { valid, reason? }.
 #[tauri::command]
 fn check_license_with_server() -> Result<license_server::LicenseCheckResult, String> {
@@ -8467,6 +8473,7 @@ pub fn run() {
             store_license_expiry,
             validate_license_key,
             check_license_with_server,
+            check_license_key_with_server,
             register_license_on_server,
             refresh_license_expiry_from_server,
             hash_password,

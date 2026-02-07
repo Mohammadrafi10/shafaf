@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
-import { getMachineId, validateLicenseKey, storeLicenseKey, registerLicenseOnServer, checkLicenseWithServer } from "../utils/license";
+import { getMachineId, validateLicenseKey, storeLicenseKey, registerLicenseOnServer, checkLicenseKeyWithServer, refreshLicenseExpiryFromServer, getLicenseExpiry } from "../utils/license";
 import Footer from "./Footer";
 
 interface LicenseProps {
   reason?: "expired" | "invalid" | null;
   onLicenseValid: () => void;
+  onLicenseInvalid?: (reason: "expired" | "invalid") => void;
 }
 
 // Persian/Dari translations
@@ -43,7 +44,7 @@ const translations = {
   },
 };
 
-export default function License({ reason, onLicenseValid }: LicenseProps) {
+export default function License({ reason, onLicenseValid, onLicenseInvalid }: LicenseProps) {
   const [machineId, setMachineId] = useState<string>("");
   const [licenseKey, setLicenseKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -93,15 +94,28 @@ export default function License({ reason, onLicenseValid }: LicenseProps) {
       const isValid = await validateLicenseKey(licenseKey.trim());
       
       if (isValid) {
-        await registerLicenseOnServer(licenseKey.trim());
-        await storeLicenseKey(licenseKey.trim());
-        const serverResult = await checkLicenseWithServer();
+        const trimmedKey = licenseKey.trim();
+        await registerLicenseOnServer(trimmedKey);
+        const serverResult = await checkLicenseKeyWithServer(trimmedKey);
         if (!serverResult.valid) {
+          const invalidReason = serverResult.reason === "expired" ? "expired" : "invalid";
+          onLicenseInvalid?.(invalidReason);
           toast.error(
-            serverResult.reason === "expired"
+            invalidReason === "expired"
               ? translations.errors.expired
               : translations.errors.invalidKey
           );
+          setLoading(false);
+          return;
+        }
+        await storeLicenseKey(trimmedKey);
+        await refreshLicenseExpiryFromServer();
+        // Also check the timer: ensure stored expiry is in the future before proceeding.
+        const expiryIso = await getLicenseExpiry().catch(() => null);
+        const expiryInPast = expiryIso ? (new Date(expiryIso).getTime() <= Date.now()) : true;
+        if (expiryInPast) {
+          onLicenseInvalid?.("expired");
+          toast.error(translations.errors.expired);
           setLoading(false);
           return;
         }
@@ -335,12 +349,12 @@ export default function License({ reason, onLicenseValid }: LicenseProps) {
               </div>
             </motion.div>
 
-            {/* Activate Button */}
+            {/* Activate Button: disabled when license is expired and no new key entered (user must enter a new key to try again) */}
             <motion.button
               type="submit"
-              disabled={loading || loadingMachineId}
-              whileHover={{ scale: loading ? 1 : 1.02 }}
-              whileTap={{ scale: loading ? 1 : 0.98 }}
+              disabled={loading || loadingMachineId || (reason === "expired" && !licenseKey.trim())}
+              whileHover={{ scale: loading || (reason === "expired" && !licenseKey.trim()) ? 1 : 1.02 }}
+              whileTap={{ scale: loading || (reason === "expired" && !licenseKey.trim()) ? 1 : 0.98 }}
               className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-bold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-6"
             >
               {loading ? (

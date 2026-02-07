@@ -426,6 +426,10 @@ function App() {
           setLicenseValid(true);
           setLicenseReason(null);
         }}
+        onLicenseInvalid={(invalidReason) => {
+          setLicenseReason(invalidReason);
+          setLicenseValid(false);
+        }}
       />
     );
   }
@@ -716,8 +720,15 @@ function App() {
             <div className="flex items-center gap-4">
               {licenseRemainingDays !== null && (
                 <div className="flex items-center gap-2">
-                  <div className="px-4 py-2 rounded-xl bg-purple-100 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700" dir="rtl">
-                    <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                  <div
+                    role={licenseRemainingDays <= 0 ? "button" : undefined}
+                    tabIndex={licenseRemainingDays <= 0 ? 0 : undefined}
+                    onClick={licenseRemainingDays <= 0 ? () => { setLicenseValid(false); setLicenseReason("expired"); } : undefined}
+                    onKeyDown={licenseRemainingDays <= 0 ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLicenseValid(false); setLicenseReason("expired"); } } : undefined}
+                    className={`px-4 py-2 rounded-xl border ${licenseRemainingDays <= 0 ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 cursor-pointer hover:bg-amber-200 dark:hover:bg-amber-800/40 focus:outline-none focus:ring-2 focus:ring-amber-500" : "bg-purple-100 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700"}`}
+                    dir="rtl"
+                  >
+                    <p className={`text-sm font-medium ${licenseRemainingDays <= 0 ? "text-amber-800 dark:text-amber-200" : "text-purple-700 dark:text-purple-300"}`}>
                       {licenseRemainingDays <= 0
                         ? "اعتبار لایسنس منقضی شده"
                         : `اعتبار لایسنس: ${formatPersianNumber(licenseRemainingDays)} روز باقی‌مانده`}
