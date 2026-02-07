@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
-import { getMachineId, validateLicenseKey, storeLicenseKey } from "../utils/license";
+import { getMachineId, validateLicenseKey, storeLicenseKey, registerLicenseOnServer, checkLicenseWithServer } from "../utils/license";
 import Footer from "./Footer";
 
 interface LicenseProps {
+  reason?: "expired" | "invalid" | null;
   onLicenseValid: () => void;
 }
 
@@ -29,15 +30,20 @@ const translations = {
   },
   errors: {
     invalidKey: "کلید فعال‌سازی نامعتبر است",
+    expired: "اعتبار لایسنس به پایان رسیده است. لطفاً با پشتیبانی تماس بگیرید.",
     generalError: "خطایی در فعال‌سازی رخ داد",
     machineIdError: "خطا در دریافت شناسه دستگاه",
   },
   success: {
     activated: "نرم‌افزار با موفقیت فعال شد",
   },
+  contact: {
+    forActivation: "برای فعال‌سازی لایسنس با این شماره تماس بگیرید",
+    callNumber: "+93 79 754 8234",
+  },
 };
 
-export default function License({ onLicenseValid }: LicenseProps) {
+export default function License({ reason, onLicenseValid }: LicenseProps) {
   const [machineId, setMachineId] = useState<string>("");
   const [licenseKey, setLicenseKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -87,8 +93,18 @@ export default function License({ onLicenseValid }: LicenseProps) {
       const isValid = await validateLicenseKey(licenseKey.trim());
       
       if (isValid) {
-        // Store the license key
+        await registerLicenseOnServer(licenseKey.trim());
         await storeLicenseKey(licenseKey.trim());
+        const serverResult = await checkLicenseWithServer();
+        if (!serverResult.valid) {
+          toast.error(
+            serverResult.reason === "expired"
+              ? translations.errors.expired
+              : translations.errors.invalidKey
+          );
+          setLoading(false);
+          return;
+        }
         toast.success(translations.success.activated);
         setTimeout(() => {
           onLicenseValid();
@@ -191,6 +207,17 @@ export default function License({ onLicenseValid }: LicenseProps) {
             </p>
           </motion.div>
 
+          {reason === "expired" && (
+            <motion.div
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 rounded-xl bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-sm text-center"
+              dir="rtl"
+            >
+              {translations.errors.expired}
+            </motion.div>
+          )}
+
           <form onSubmit={handleActivate} className="space-y-6" dir="rtl">
             {/* Machine ID Section */}
             <motion.div
@@ -251,6 +278,29 @@ export default function License({ onLicenseValid }: LicenseProps) {
                 <li>• {translations.instructions.step3}</li>
                 <li>• {translations.instructions.step4}</li>
               </ul>
+            </motion.div>
+
+            {/* Contact for activation */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.55 }}
+              className="flex flex-col items-center gap-2 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800"
+              dir="rtl"
+            >
+              <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                {translations.contact.forActivation}
+              </p>
+              <a
+                href="tel:+93797548234"
+                dir="ltr"
+                className="inline-flex items-center gap-2 text-lg font-bold text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-100 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+                {translations.contact.callNumber}
+              </a>
             </motion.div>
 
             {/* License Key Input */}

@@ -1,5 +1,6 @@
 mod db;
 mod license;
+mod license_server;
 mod server;
 
 use db::Database;
@@ -890,10 +891,69 @@ fn get_license_key() -> Result<Option<String>, String> {
     }
 }
 
+/// Store license expiry (ISO datetime) in secure storage on this machine. Associated with the license key.
+#[tauri::command]
+fn store_license_expiry(expiry_iso: String) -> Result<(), String> {
+    use keyring::Entry;
+    let entry = Entry::new("finance_app", "license_expiry")
+        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+    entry.set_password(&expiry_iso)
+        .map_err(|e| format!("Failed to store license expiry: {}", e))?;
+    Ok(())
+}
+
+/// Get license expiry from secure storage (stored on this machine when license was activated).
+#[tauri::command]
+fn get_license_expiry() -> Result<Option<String>, String> {
+    use keyring::Entry;
+    let entry = Entry::new("finance_app", "license_expiry")
+        .map_err(|e| format!("Failed to create keyring entry: {}", e))?;
+    match entry.get_password() {
+        Ok(s) => Ok(Some(s)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(format!("Failed to get license expiry: {}", e)),
+    }
+}
+
 /// Validate license key
 #[tauri::command]
 fn validate_license_key(entered_key: String) -> Result<bool, String> {
     license::validate_license_key(&entered_key)
+}
+
+/// Check stored license: local expiry first (stored on this machine), then remote server. Returns { valid, reason? }.
+#[tauri::command]
+fn check_license_with_server() -> Result<license_server::LicenseCheckResult, String> {
+    let key = get_license_key()?;
+    let key = match key {
+        Some(k) if !k.trim().is_empty() => k,
+        _ => {
+            return Ok(license_server::LicenseCheckResult {
+                valid: false,
+                reason: Some("invalid".to_string()),
+            });
+        }
+    };
+    if let Ok(Some(expiry_iso)) = get_license_expiry() {
+        if let Ok(expired) = license_server::is_expiry_past(&expiry_iso) {
+            if expired {
+                return Ok(license_server::LicenseCheckResult {
+                    valid: false,
+                    reason: Some("expired".to_string()),
+                });
+            }
+        }
+    }
+    license_server::check_license_against_server(&key)
+}
+
+/// Insert the given license key into the remote MySQL license table only if it does not exist; store expiry locally when inserted.
+#[tauri::command]
+fn register_license_on_server(license_key: String) -> Result<(), String> {
+    if let Some(expiry_iso) = license_server::insert_license_on_server(&license_key)? {
+        store_license_expiry(expiry_iso)?;
+    }
+    Ok(())
 }
 
 /// Store Puter credentials in secure storage
@@ -8389,7 +8449,11 @@ pub fn run() {
             get_machine_id,
             store_license_key,
             get_license_key,
+            get_license_expiry,
+            store_license_expiry,
             validate_license_key,
+            check_license_with_server,
+            register_license_on_server,
             hash_password,
             verify_password,
             store_puter_credentials,

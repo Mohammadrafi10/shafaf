@@ -9,6 +9,8 @@ use sysinfo::System;
 // In production, this should be obfuscated or derived from app metadata
 const SECRET_KEY_BASE: &str = "com.sulaiman.financeapp.license.secret.2024";
 const SALT: &str = "finance-app-salt-2024";
+/// Salt for expiry datetime encryption (different from machine ID)
+const EXPIRY_SALT: &str = "finance-app-expiry-salt-2024";
 
 /// Derive encryption key from secret base
 fn derive_key() -> [u8; 32] {
@@ -87,6 +89,49 @@ pub fn encrypt_machine_id(machine_id: &str) -> Result<String, String> {
     combined.extend_from_slice(&ciphertext);
     
     Ok(hex::encode(combined))
+}
+
+/// Derive nonce for expiry encryption (deterministic from plaintext for reproducibility)
+fn derive_expiry_nonce(plaintext: &str) -> [u8; 12] {
+    let mut hasher = Sha256::new();
+    hasher.update(plaintext.as_bytes());
+    hasher.update(EXPIRY_SALT.as_bytes());
+    let hash = hasher.finalize();
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&hash[..12]);
+    nonce
+}
+
+/// Encrypt expiry datetime string (e.g. ISO format) for storage in license server DB.
+/// Returns hex-encoded ciphertext (nonce + ciphertext).
+pub fn encrypt_expiry_datetime(datetime_str: &str) -> Result<String, String> {
+    let key = derive_key();
+    let cipher = Aes256Gcm::new(&key.into());
+    let nonce_arr = derive_expiry_nonce(datetime_str);
+    let nonce = Nonce::from_slice(&nonce_arr);
+    let ciphertext = cipher
+        .encrypt(nonce, datetime_str.as_bytes())
+        .map_err(|e| format!("Expiry encryption error: {}", e))?;
+    let mut combined = nonce.to_vec();
+    combined.extend_from_slice(&ciphertext);
+    Ok(hex::encode(combined))
+}
+
+/// Decrypt expiry datetime from hex-encoded ciphertext from license server.
+/// Returns the expiry datetime string (e.g. ISO format).
+pub fn decrypt_expiry_datetime(hex_ciphertext: &str) -> Result<String, String> {
+    let bytes = hex::decode(hex_ciphertext).map_err(|e| format!("Invalid hex: {}", e))?;
+    if bytes.len() < 12 {
+        return Err("Ciphertext too short".to_string());
+    }
+    let key = derive_key();
+    let cipher = Aes256Gcm::new(&key.into());
+    let (nonce_slice, ciphertext) = bytes.split_at(12);
+    let nonce = Nonce::from_slice(nonce_slice);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext)
+        .map_err(|e| format!("Expiry decryption error: {}", e))?;
+    String::from_utf8(plaintext).map_err(|e| format!("Invalid UTF-8: {}", e))
 }
 
 /// Validate license key by encrypting current machine ID and comparing

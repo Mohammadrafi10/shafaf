@@ -10,7 +10,7 @@ import { getDashboardStats, formatPersianNumber, formatLargeNumber } from "./uti
 import { playClickSound } from "./utils/sound";
 import { getCompanySettings, initCompanySettingsTable, type CompanySettings as CompanySettingsType } from "./utils/company";
 import { applyFont } from "./utils/fonts";
-import { isLicenseValid } from "./utils/license";
+import { getLicenseKey, validateLicenseKey, checkLicenseWithServer, getLicenseExpiry } from "./utils/license";
 import { checkForUpdatesOnStartup } from "./utils/updater";
 import { startCredentialSync } from "./utils/puter";
 import Login from "./components/Login";
@@ -103,6 +103,7 @@ const DASHBOARD_FEATURES: Array<{
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [licenseValid, setLicenseValid] = useState<boolean | null>(null);
+  const [licenseReason, setLicenseReason] = useState<"expired" | "invalid" | null>(null);
   const [dbReady, setDbReady] = useState<boolean | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
@@ -116,6 +117,7 @@ function App() {
   });
   const [loadingStats, setLoadingStats] = useState(false);
   const [companySettings, setCompanySettings] = useState<CompanySettingsType | null>(null);
+  const [licenseRemainingDays, setLicenseRemainingDays] = useState<number | null>(null);
   const [invoiceData, setInvoiceData] = useState<{
     saleData: SaleWithItems;
     customer: Customer;
@@ -215,15 +217,30 @@ function App() {
     };
   }, [user]);
 
-  // Check license validity on mount
+  // Check license validity on mount: stored key, local validation, then server (expiry)
   useEffect(() => {
     const checkLicense = async () => {
       try {
-        const valid = await isLicenseValid();
-        setLicenseValid(valid);
+        setLicenseReason(null);
+        const storedKey = await getLicenseKey();
+        if (!storedKey) {
+          setLicenseValid(false);
+          setLicenseReason("invalid");
+          return;
+        }
+        const localValid = await validateLicenseKey(storedKey);
+        if (!localValid) {
+          setLicenseValid(false);
+          setLicenseReason("invalid");
+          return;
+        }
+        const serverResult = await checkLicenseWithServer();
+        setLicenseValid(serverResult.valid);
+        setLicenseReason(serverResult.reason ?? null);
       } catch (error) {
         console.error("Error checking license:", error);
         setLicenseValid(false);
+        setLicenseReason("invalid");
       }
     };
     checkLicense();
@@ -315,6 +332,26 @@ function App() {
     }
   }, [user]);
 
+  // Load license remaining days for navbar (when user is logged in)
+  useEffect(() => {
+    if (!user) {
+      setLicenseRemainingDays(null);
+      return;
+    }
+    getLicenseExpiry()
+      .then((expiryIso) => {
+        if (!expiryIso) {
+          setLicenseRemainingDays(null);
+          return;
+        }
+        const expiryMs = new Date(expiryIso).getTime();
+        const nowMs = Date.now();
+        const days = Math.floor((expiryMs - nowMs) / (24 * 60 * 60 * 1000));
+        setLicenseRemainingDays(days);
+      })
+      .catch(() => setLicenseRemainingDays(null));
+  }, [user]);
+
   // Load dashboard stats when on dashboard page
   useEffect(() => {
     const loadStats = async () => {
@@ -348,7 +385,15 @@ function App() {
   }
 
   if (!licenseValid) {
-    return <License onLicenseValid={() => setLicenseValid(true)} />;
+    return (
+      <License
+        reason={licenseReason}
+        onLicenseValid={() => {
+          setLicenseValid(true);
+          setLicenseReason(null);
+        }}
+      />
+    );
   }
 
   // Before login: ensure database exists and tables exist (open or create + import db.sql)
@@ -621,8 +666,17 @@ function App() {
               </div>
             </div>
 
-            {/* User Profile */}
+            {/* License remaining days & User Profile */}
             <div className="flex items-center gap-4">
+              {licenseRemainingDays !== null && (
+                <div className="px-4 py-2 rounded-xl bg-purple-100 dark:bg-purple-900/30 border border-purple-200 dark:border-purple-700" dir="rtl">
+                  <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
+                    {licenseRemainingDays <= 0
+                      ? "اعتبار لایسنس منقضی شده"
+                      : `اعتبار لایسنس: ${formatPersianNumber(licenseRemainingDays)} روز باقی‌مانده`}
+                  </p>
+                </div>
+              )}
               <div className="text-left">
                 <p className="font-semibold text-gray-900 dark:text-white">{user.username}</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{user.email}</p>

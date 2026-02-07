@@ -54,6 +54,10 @@ const translations = {
         chooseFolder: "انتخاب پوشه",
         autoBackupDirHint: "اگر خالی باشد از پوشه پیش‌فرض برنامه استفاده می‌شود",
     },
+    license: {
+        remainingDays: "اعتبار لایسنس: {days} روز باقی‌مانده",
+        expired: "اعتبار لایسنس منقضی شده",
+    },
 };
 
 export type CompanySettingsNavigatePage = "currency" | "unit" | "account";
