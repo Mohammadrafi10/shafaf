@@ -72,13 +72,10 @@ pub fn is_expiry_past(expiry_iso: &str) -> Result<bool, String> {
     Ok(Utc::now() > expiry_dt)
 }
 
-/// Check license against remote MySQL: returns valid, expired, or invalid.
-pub fn check_license_against_server(license_key: &str) -> Result<LicenseCheckResult, String> {
+/// Fetch the expiry datetime (decrypted) from the server for the given license key. Returns None if key not found.
+pub fn fetch_expiry_iso_from_server(license_key: &str) -> Result<Option<String>, String> {
     if license_key.trim().is_empty() {
-        return Ok(LicenseCheckResult {
-            valid: false,
-            reason: Some("invalid".to_string()),
-        });
+        return Ok(None);
     }
 
     let opts_no_db = get_license_server_opts(false);
@@ -101,6 +98,25 @@ pub fn check_license_against_server(license_key: &str) -> Result<LicenseCheckRes
 
     let expires_at_encrypted = match rows.into_iter().next() {
         Some(s) => s,
+        None => return Ok(None),
+    };
+
+    let expiry_str = decrypt_expiry_datetime(&expires_at_encrypted)
+        .map_err(|e| format!("Failed to decrypt expiry: {}", e))?;
+    Ok(Some(expiry_str))
+}
+
+/// Check license against remote MySQL: returns valid, expired, or invalid.
+pub fn check_license_against_server(license_key: &str) -> Result<LicenseCheckResult, String> {
+    if license_key.trim().is_empty() {
+        return Ok(LicenseCheckResult {
+            valid: false,
+            reason: Some("invalid".to_string()),
+        });
+    }
+
+    let expiry_str = match fetch_expiry_iso_from_server(license_key)? {
+        Some(s) => s,
         None => {
             return Ok(LicenseCheckResult {
                 valid: false,
@@ -108,9 +124,6 @@ pub fn check_license_against_server(license_key: &str) -> Result<LicenseCheckRes
             });
         }
     };
-
-    let expiry_str = decrypt_expiry_datetime(&expires_at_encrypted)
-        .map_err(|e| format!("Failed to decrypt expiry: {}", e))?;
 
     // Parse expiry (ISO 8601 or "YYYY-MM-DD HH:MM:SS")
     let expiry_dt: DateTime<Utc> = if let Ok(dt) = DateTime::parse_from_rfc3339(&expiry_str) {

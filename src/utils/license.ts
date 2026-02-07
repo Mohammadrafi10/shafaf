@@ -57,6 +57,14 @@ export async function registerLicenseOnServer(key: string): Promise<void> {
 }
 
 /**
+ * Refresh license expiry from server: fetch encrypted expiry, decrypt, and update local keyring.
+ * Call when the server expiry may have been extended (e.g. by admin).
+ */
+export async function refreshLicenseExpiryFromServer(): Promise<void> {
+  return await invoke<void>("refresh_license_expiry_from_server");
+}
+
+/**
  * Check the stored license against the remote MySQL license server.
  * Returns { valid, reason? }. Use for startup and after entering a new key.
  */

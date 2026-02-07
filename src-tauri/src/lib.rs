@@ -956,6 +956,20 @@ fn register_license_on_server(license_key: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Refresh license expiry from server: fetch encrypted expiry, decrypt, and update local keyring.
+#[tauri::command]
+fn refresh_license_expiry_from_server() -> Result<(), String> {
+    let key = get_license_key()?;
+    let key = match key {
+        Some(k) if !k.trim().is_empty() => k,
+        _ => return Err("No license key stored".to_string()),
+    };
+    if let Some(expiry_iso) = license_server::fetch_expiry_iso_from_server(&key)? {
+        store_license_expiry(expiry_iso)?;
+    }
+    Ok(())
+}
+
 /// Store Puter credentials in secure storage
 #[tauri::command]
 fn store_puter_credentials(app_id: String, auth_token: String) -> Result<(), String> {
@@ -8454,6 +8468,7 @@ pub fn run() {
             validate_license_key,
             check_license_with_server,
             register_license_on_server,
+            refresh_license_expiry_from_server,
             hash_password,
             verify_password,
             store_puter_credentials,
