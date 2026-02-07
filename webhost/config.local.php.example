@@ -1,0 +1,13 @@
+<?php
+/**
+ * Copy to config.local.php and set your DB credentials.
+ * config.local.php is not committed (add to .gitignore if needed).
+ */
+return [
+    'db_host' => 'your-mysql-host',
+    'db_port' => 3306,
+    'db_user' => 'your-user',
+    'db_pass' => 'your-password',
+    'db_name' => 'shafaf_license',
+    'table'   => 'licenses',
+];
