@@ -21,6 +21,7 @@ import { exportReportToExcel } from "../utils/reportExport";
 import { georgianToPersian } from "../utils/date";
 import { getCustomers, type Customer } from "../utils/customer";
 import { getSuppliers, type Supplier } from "../utils/supplier";
+import { getCompanySettings, type CompanySettings } from "../utils/company";
 
 interface ReportProps {
   onBack: () => void;
@@ -122,8 +123,24 @@ export default function Report({ onBack }: ReportProps) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
   const [loadingEntities, setLoadingEntities] = useState(false);
+  
+  // Company settings
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
+
+  // Load company settings on mount
+  useEffect(() => {
+    const loadCompanySettings = async () => {
+      try {
+        const settings = await getCompanySettings();
+        setCompanySettings(settings);
+      } catch (error) {
+        console.error("Error loading company settings:", error);
+      }
+    };
+    loadCompanySettings();
+  }, []);
 
   // Load customers/suppliers when report type changes
   useEffect(() => {
@@ -276,6 +293,30 @@ export default function Report({ onBack }: ReportProps) {
             background: white !important;
             width: 100% !important;
             max-width: 100% !important;
+          }
+          .company-header-print {
+            display: flex !important;
+            align-items: center !important;
+            gap: 1.5rem !important;
+            margin-bottom: 2rem !important;
+            padding-bottom: 1rem !important;
+            border-bottom: 2px solid #e5e7eb !important;
+          }
+          .company-logo-print {
+            width: 80px !important;
+            height: 80px !important;
+            object-fit: contain !important;
+          }
+          .company-info-print h2 {
+            font-size: 1.5rem !important;
+            font-weight: bold !important;
+            margin: 0 0 0.5rem 0 !important;
+            color: #111827 !important;
+          }
+          .company-info-print p {
+            margin: 0.25rem 0 !important;
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
           }
         }
       `}</style>
@@ -501,6 +542,34 @@ export default function Report({ onBack }: ReportProps) {
               className="space-y-8 bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl border border-purple-200/50 dark:border-purple-800/30 shadow-xl p-6"
               data-pdf-root
             >
+              {/* Company Header - Visible on screen and in print */}
+              {companySettings && (
+                <div className="flex items-center gap-6 mb-6 pb-4 border-b-2 border-gray-200 dark:border-gray-700 company-header-print">
+                  {companySettings.logo && (
+                    <img 
+                      src={companySettings.logo} 
+                      alt="Company Logo" 
+                      className="w-20 h-20 object-contain company-logo-print"
+                    />
+                  )}
+                  <div className="flex-1 company-info-print">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                      {companySettings.name}
+                    </h2>
+                    {companySettings.phone && (
+                      <p className="text-gray-600 dark:text-gray-400 mb-1">
+                        تلفن: {companySettings.phone}
+                      </p>
+                    )}
+                    {companySettings.address && (
+                      <p className="text-gray-600 dark:text-gray-400">
+                        آدرس: {companySettings.address}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.title}</h2>
                 <p className="mt-2 text-gray-600 dark:text-gray-400">
