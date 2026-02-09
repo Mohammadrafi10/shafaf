@@ -9,7 +9,7 @@ use mysql::{Opts, OptsBuilder, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::io;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
@@ -342,7 +342,7 @@ fn create_daily_backup(app: AppHandle, custom_dir: Option<String>) -> Result<Str
     Ok(backup_path.to_string_lossy().to_string())
 }
 
-/// Restore database from a SQL dump file.
+/// Restore database from a SQL dump file. Restores all tables except `users` so current logins are preserved.
 #[tauri::command]
 fn restore_database(backup_path: String) -> Result<String, String> {
     let opts = get_mysql_opts()?;
@@ -353,20 +353,86 @@ fn restore_database(backup_path: String) -> Result<String, String> {
     let db_name = opts.get_db_name().ok_or("MYSQL_DATABASE not set")?;
 
     let inp = fs::File::open(&backup_path).map_err(|e| format!("Failed to open backup file: {}", e))?;
+    let reader = BufReader::new(inp);
+
+    // Filter out any statement that touches the `users` table so we keep current users.
+    let mut filtered = Vec::<u8>::new();
+    let mut skip_until_unlock = false;
+    let mut in_users_create = false;
+    let mut skip_insert_until_semicolon = false;
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Failed to read backup file: {}", e))?;
+        let trimmed = line.trim();
+
+        if skip_until_unlock {
+            if trimmed.starts_with("UNLOCK TABLES") {
+                skip_until_unlock = false;
+            }
+            continue;
+        }
+        if in_users_create {
+            if trimmed.ends_with(");") {
+                in_users_create = false;
+            }
+            continue;
+        }
+        if skip_insert_until_semicolon {
+            if trimmed.ends_with(';') {
+                skip_insert_until_semicolon = false;
+            }
+            continue;
+        }
+
+        // Skip DROP TABLE for users only
+        if trimmed.starts_with("DROP TABLE IF EXISTS `users`")
+            || trimmed.starts_with("DROP TABLE IF EXISTS \"users\"")
+        {
+            continue;
+        }
+        // Skip CREATE TABLE for users (with or without IF NOT EXISTS)
+        if (trimmed.starts_with("CREATE TABLE `users`") || trimmed.starts_with("CREATE TABLE IF NOT EXISTS `users`"))
+            || (trimmed.starts_with("CREATE TABLE \"users\"") || trimmed.starts_with("CREATE TABLE IF NOT EXISTS \"users\""))
+        {
+            in_users_create = true;
+            continue;
+        }
+        // Skip LOCK TABLES for users
+        if trimmed.contains("LOCK TABLES `users`") || trimmed.contains("LOCK TABLES \"users\"") {
+            skip_until_unlock = true;
+            continue;
+        }
+        // Skip INSERT INTO users (whole statement; mysqldump usually one line)
+        if trimmed.contains("INSERT INTO `users`") || trimmed.contains("INSERT INTO \"users\"") {
+            if !trimmed.ends_with(';') {
+                skip_insert_until_semicolon = true;
+            }
+            continue;
+        }
+
+        filtered.write_all(line.as_bytes()).map_err(|e| format!("Failed to write filtered SQL: {}", e))?;
+        filtered.write_all(b"\n").map_err(|e| format!("Failed to write filtered SQL: {}", e))?;
+    }
+
     let mut cmd = Command::new("mysql");
-    cmd.arg("-h").arg(host)
+    cmd.arg("-h").arg(&host)
         .arg("-P").arg(port.to_string())
-        .arg("-u").arg(user)
-        .arg(db_name);
+        .arg("-u").arg(&user)
+        .arg(&db_name);
     if !pass.is_empty() {
         cmd.arg(format!("-p{}", pass));
     }
-    cmd.stdin(inp);
-    let status = cmd.status().map_err(|e| format!("Failed to run mysql: {}", e))?;
+    cmd.stdin(std::process::Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to run mysql: {}", e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(&filtered).map_err(|e| format!("Failed to pipe SQL to mysql: {}", e))?;
+        stdin.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+    }
+    let status = child.wait().map_err(|e| format!("Failed to wait for mysql: {}", e))?;
     if !status.success() {
         return Err("mysql restore failed".to_string());
     }
-    Ok("Database restored successfully".to_string())
+    Ok("Database restored successfully (users table was not changed).".to_string())
 }
 
 /// Embedded schema: run on first init when users table does not exist.

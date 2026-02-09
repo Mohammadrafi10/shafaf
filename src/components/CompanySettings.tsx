@@ -108,7 +108,7 @@ export default function CompanySettings({ onBack, onNavigate }: CompanySettingsP
             });
             if (filePath && typeof filePath === "string") {
                 const confirmed = window.confirm(
-                    "آیا مطمئن هستید که می‌خواهید پایگاه داده را بازگردانی کنید؟ این عمل تمام داده‌های فعلی را جایگزین می‌کند."
+                    "آیا مطمئن هستید که می‌خواهید پایگاه داده را بازگردانی کنید؟ تمام جداول به‌جز جدول کاربران (users) بازگردانی می‌شوند؛ کاربران فعلی حفظ می‌شوند."
                 );
                 if (confirmed) {
                     await restoreDatabase(filePath);
