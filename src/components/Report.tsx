@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
 import moment from "moment-jalaali";
@@ -19,6 +19,8 @@ import {
 } from "../utils/report";
 import { exportReportToExcel } from "../utils/reportExport";
 import { georgianToPersian } from "../utils/date";
+import { getCustomers, type Customer } from "../utils/customer";
+import { getSuppliers, type Supplier } from "../utils/supplier";
 
 interface ReportProps {
   onBack: () => void;
@@ -113,8 +115,46 @@ export default function Report({ onBack }: ReportProps) {
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [includeExpenses, setIncludeExpenses] = useState(true);
   const [profitGroupBy, setProfitGroupBy] = useState<ProfitGroupBy>("none");
+  
+  // Customer/Supplier search
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
+  const [loadingEntities, setLoadingEntities] = useState(false);
 
   const reportRef = useRef<HTMLDivElement>(null);
+
+  // Load customers/suppliers when report type changes
+  useEffect(() => {
+    const loadEntities = async () => {
+      if (reportType === "customers" || reportType === "receivables") {
+        setLoadingEntities(true);
+        try {
+          const customersData = await getCustomers(1, 10000);
+          setCustomers(customersData.items);
+        } catch (error) {
+          console.error("Error loading customers:", error);
+        } finally {
+          setLoadingEntities(false);
+        }
+      } else if (reportType === "suppliers" || reportType === "payables") {
+        setLoadingEntities(true);
+        try {
+          const suppliersData = await getSuppliers(1, 10000);
+          setSuppliers(suppliersData.items);
+        } catch (error) {
+          console.error("Error loading suppliers:", error);
+        } finally {
+          setLoadingEntities(false);
+        }
+      }
+    };
+    loadEntities();
+    // Reset selections when report type changes
+    setSelectedCustomerId("");
+    setSelectedSupplierId("");
+  }, [reportType]);
 
   const handleGenerate = async () => {
     if (!fromDate || !toDate) {
@@ -156,16 +196,16 @@ export default function Report({ onBack }: ReportProps) {
           data = await generateProductReport(from, to);
           break;
         case "customers":
-          data = await generateCustomerReport(from, to);
+          data = await generateCustomerReport(from, to, selectedCustomerId ? parseInt(selectedCustomerId) : null);
           break;
         case "suppliers":
-          data = await generateSupplierReport(from, to);
+          data = await generateSupplierReport(from, to, selectedSupplierId ? parseInt(selectedSupplierId) : null);
           break;
         case "receivables":
-          data = await generateReceivablesReport(from, to);
+          data = await generateReceivablesReport(from, to, selectedCustomerId ? parseInt(selectedCustomerId) : null);
           break;
         case "payables":
-          data = await generatePayablesReport(from, to);
+          data = await generatePayablesReport(from, to, selectedSupplierId ? parseInt(selectedSupplierId) : null);
           break;
         case "profit":
           data = await generateProfitReport(from, to, {
@@ -306,6 +346,51 @@ export default function Report({ onBack }: ReportProps) {
                 />
               </div>
             </div>
+
+            {/* Customer/Supplier Search - Show only for customer/supplier reports */}
+            {(reportType === "customers" || reportType === "receivables") && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  جستجوی مشتری (اختیاری)
+                </label>
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => setSelectedCustomerId(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                  dir="rtl"
+                  disabled={loadingEntities}
+                >
+                  <option value="">همه مشتریان</option>
+                  {customers.map((customer) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {(reportType === "suppliers" || reportType === "payables") && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  جستجوی تمویل‌کننده (اختیاری)
+                </label>
+                <select
+                  value={selectedSupplierId}
+                  onChange={(e) => setSelectedSupplierId(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                  dir="rtl"
+                  disabled={loadingEntities}
+                >
+                  <option value="">همه تمویل‌کنندگان</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Date Presets */}
             <div>

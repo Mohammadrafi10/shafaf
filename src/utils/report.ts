@@ -794,16 +794,28 @@ export async function generateProductReport(
 }
 
 /**
- * Generate Customer Report filtered by date range
+ * Generate Customer Report filtered by date range and optionally by customer ID
  */
 export async function generateCustomerReport(
   fromDate: string,
-  toDate: string
+  toDate: string,
+  customerId: number | null = null
 ): Promise<ReportData> {
   const from = fromDate;
   const to = toDate;
 
-  const customersQuery = `
+  // Get customer name if specific customer is selected
+  let customerName: string | null = null;
+  if (customerId !== null) {
+    const customerNameQuery = `SELECT full_name FROM customers WHERE id = ?`;
+    const nameResult = await queryDatabase(customerNameQuery, [customerId]);
+    const nameRows = resultToObjects(nameResult);
+    if (nameRows.length > 0) {
+      customerName = nameRows[0].full_name;
+    }
+  }
+
+  let customersQuery = `
     SELECT 
       c.id,
       c.full_name,
@@ -813,12 +825,22 @@ export async function generateCustomerReport(
       SUM(s.base_amount - s.paid_amount) as total_remaining
     FROM customers c
     LEFT JOIN sales s ON c.id = s.customer_id AND s.date >= ? AND s.date <= ?
+  `;
+  
+  const params: any[] = [from, to];
+  
+  if (customerId !== null) {
+    customersQuery += ` WHERE c.id = ?`;
+    params.push(customerId);
+  }
+  
+  customersQuery += `
     GROUP BY c.id, c.full_name
     HAVING sale_count > 0
     ORDER BY total_sales DESC
   `;
 
-  const customersResult = await queryDatabase(customersQuery, [from, to]);
+  const customersResult = await queryDatabase(customersQuery, params);
   const customers = resultToObjects(customersResult);
 
   const totalSales = customers.reduce((sum: number, c: any) => sum + (c.total_sales || 0), 0);
@@ -833,8 +855,12 @@ export async function generateCustomerReport(
     total_remaining_formatted: formatPersianNumber(customer.total_remaining || 0),
   }));
 
+  const reportTitle = customerId !== null && customerName 
+    ? `گزارش مشتری: ${customerName}`
+    : "گزارش مشتریان";
+
   return {
-    title: "گزارش مشتریان",
+    title: reportTitle,
     type: "customers",
     dateRange: { from, to },
     summary: {
@@ -871,16 +897,28 @@ export async function generateCustomerReport(
 }
 
 /**
- * Generate Supplier Report filtered by date range
+ * Generate Supplier Report filtered by date range and optionally by supplier ID
  */
 export async function generateSupplierReport(
   fromDate: string,
-  toDate: string
+  toDate: string,
+  supplierId: number | null = null
 ): Promise<ReportData> {
   const from = fromDate;
   const to = toDate;
 
-  const suppliersQuery = `
+  // Get supplier name if specific supplier is selected
+  let supplierName: string | null = null;
+  if (supplierId !== null) {
+    const supplierNameQuery = `SELECT full_name FROM suppliers WHERE id = ?`;
+    const nameResult = await queryDatabase(supplierNameQuery, [supplierId]);
+    const nameRows = resultToObjects(nameResult);
+    if (nameRows.length > 0) {
+      supplierName = nameRows[0].full_name;
+    }
+  }
+
+  let suppliersQuery = `
     SELECT 
       s.id,
       s.full_name,
@@ -888,12 +926,22 @@ export async function generateSupplierReport(
       SUM(p.total_amount) as total_purchases
     FROM suppliers s
     LEFT JOIN purchases p ON s.id = p.supplier_id AND p.date >= ? AND p.date <= ?
+  `;
+  
+  const params: any[] = [from, to];
+  
+  if (supplierId !== null) {
+    suppliersQuery += ` WHERE s.id = ?`;
+    params.push(supplierId);
+  }
+  
+  suppliersQuery += `
     GROUP BY s.id, s.full_name
     HAVING purchase_count > 0
     ORDER BY total_purchases DESC
   `;
 
-  const suppliersResult = await queryDatabase(suppliersQuery, [from, to]);
+  const suppliersResult = await queryDatabase(suppliersQuery, params);
   const suppliers = resultToObjects(suppliersResult);
 
   const totalPurchases = suppliers.reduce((sum: number, s: any) => sum + (s.total_purchases || 0), 0);
@@ -904,8 +952,12 @@ export async function generateSupplierReport(
     total_purchases_formatted: formatPersianNumber(supplier.total_purchases || 0),
   }));
 
+  const reportTitle = supplierId !== null && supplierName 
+    ? `گزارش تمویل‌کننده: ${supplierName}`
+    : "گزارش تمویل‌کنندگان";
+
   return {
-    title: "گزارش تمویل‌کنندگان",
+    title: reportTitle,
     type: "suppliers",
     dateRange: { from, to },
     summary: {
@@ -941,11 +993,23 @@ export async function generateSupplierReport(
  */
 export async function generateReceivablesReport(
   fromDate: string,
-  toDate: string
+  toDate: string,
+  customerId: number | null = null
 ): Promise<ReportData> {
   const to = toDate;
 
-  const receivablesQuery = `
+  // Get customer name if specific customer is selected
+  let customerName: string | null = null;
+  if (customerId !== null) {
+    const customerNameQuery = `SELECT full_name FROM customers WHERE id = ?`;
+    const nameResult = await queryDatabase(customerNameQuery, [customerId]);
+    const nameRows = resultToObjects(nameResult);
+    if (nameRows.length > 0) {
+      customerName = nameRows[0].full_name;
+    }
+  }
+
+  let receivablesQuery = `
     SELECT 
       c.id,
       c.full_name,
@@ -954,12 +1018,22 @@ export async function generateReceivablesReport(
       COALESCE(SUM(s.base_amount - s.paid_amount), 0) as total_remaining
     FROM customers c
     LEFT JOIN sales s ON c.id = s.customer_id AND s.date <= ?
+  `;
+  
+  const params: any[] = [to];
+  
+  if (customerId !== null) {
+    receivablesQuery += ` WHERE c.id = ?`;
+    params.push(customerId);
+  }
+  
+  receivablesQuery += `
     GROUP BY c.id, c.full_name
     HAVING total_remaining > 0
     ORDER BY total_remaining DESC
   `;
 
-  const receivablesResult = await queryDatabase(receivablesQuery, [to]);
+  const receivablesResult = await queryDatabase(receivablesQuery, params);
   const receivables = resultToObjects(receivablesResult);
 
   const totalReceivables = receivables.reduce((sum: number, r: any) => sum + (r.total_remaining || 0), 0);
@@ -973,8 +1047,12 @@ export async function generateReceivablesReport(
     total_remaining_formatted: formatPersianNumber(row.total_remaining || 0),
   }));
 
+  const reportTitle = customerId !== null && customerName 
+    ? `لیست مطالبات: ${customerName}`
+    : "لیست مطالبات (مشتریان)";
+
   return {
-    title: "لیست مطالبات (مشتریان)",
+    title: reportTitle,
     type: "receivables",
     dateRange: { from: fromDate, to },
     summary: {
@@ -1015,11 +1093,23 @@ export async function generateReceivablesReport(
  */
 export async function generatePayablesReport(
   fromDate: string,
-  toDate: string
+  toDate: string,
+  supplierId: number | null = null
 ): Promise<ReportData> {
   const to = toDate;
 
-  const payablesQuery = `
+  // Get supplier name if specific supplier is selected
+  let supplierName: string | null = null;
+  if (supplierId !== null) {
+    const supplierNameQuery = `SELECT full_name FROM suppliers WHERE id = ?`;
+    const nameResult = await queryDatabase(supplierNameQuery, [supplierId]);
+    const nameRows = resultToObjects(nameResult);
+    if (nameRows.length > 0) {
+      supplierName = nameRows[0].full_name;
+    }
+  }
+
+  let payablesQuery = `
     SELECT 
       sup.id,
       sup.full_name,
@@ -1035,12 +1125,22 @@ export async function generatePayablesReport(
       WHERE p2.date <= ?
       GROUP BY p2.supplier_id
     ) paid ON paid.supplier_id = sup.id
+  `;
+  
+  const params: any[] = [to, to];
+  
+  if (supplierId !== null) {
+    payablesQuery += ` WHERE sup.id = ?`;
+    params.push(supplierId);
+  }
+  
+  payablesQuery += `
     GROUP BY sup.id, sup.full_name, paid.total_paid
     HAVING total_remaining > 0
     ORDER BY total_remaining DESC
   `;
 
-  const payablesResult = await queryDatabase(payablesQuery, [to, to]);
+  const payablesResult = await queryDatabase(payablesQuery, params);
   const payables = resultToObjects(payablesResult);
 
   const totalPayables = payables.reduce((sum: number, p: any) => sum + (p.total_remaining || 0), 0);
@@ -1054,8 +1154,12 @@ export async function generatePayablesReport(
     total_remaining_formatted: formatPersianNumber(row.total_remaining || 0),
   }));
 
+  const reportTitle = supplierId !== null && supplierName 
+    ? `لیست بدهی‌ها: ${supplierName}`
+    : "لیست بدهی‌ها (تمویل‌کنندگان)";
+
   return {
-    title: "لیست بدهی‌ها (تمویل‌کنندگان)",
+    title: reportTitle,
     type: "payables",
     dateRange: { from: fromDate, to },
     summary: {
