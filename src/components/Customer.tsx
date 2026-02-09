@@ -22,6 +22,8 @@ import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import Table from "./common/Table";
 import PageHeader from "./common/PageHeader";
+import ViewModeToggle, { type ViewMode } from "./common/ViewModeToggle";
+import ThumbnailGrid from "./common/ThumbnailGrid";
 import { Search } from "lucide-react";
 
 // Dari translations
@@ -119,6 +121,17 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage }: 
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // View mode: table or thumbnail
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem("customerViewMode");
+      return (saved === "thumbnail" ? "thumbnail" : "table") as ViewMode;
+    } catch { return "table"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("customerViewMode", viewMode); } catch { /* ignore */ }
+  }, [viewMode]);
 
   useEffect(() => {
     loadCustomers();
@@ -495,7 +508,9 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage }: 
               variant: "primary" as const
             }
           ]}
-        />
+        >
+          <ViewModeToggle viewMode={viewMode} onChange={setViewMode} tableLabel="لیست" thumbnailLabel="کارت" />
+        </PageHeader>
 
           {/* Search Bar */}
           <div className="relative max-w-md w-full">
@@ -514,59 +529,97 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage }: 
             />
           </div>
 
-        <Table
-          data={customers}
-          columns={columns}
-          total={totalItems}
-          page={page}
-          perPage={perPage}
-          onPageChange={setPage}
-          onPerPageChange={setPerPage}
-          onSort={(key, dir) => {
-            setSortBy(key);
-            setSortOrder(dir);
-          }}
-          sortBy={sortBy}
-          sortOrder={sortOrder}
-          loading={loading}
-          actions={(customer) => (
-            <div className="flex items-center gap-2">
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => handleOpenBalanceModal(customer)}
-                className="p-2 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
-                title={translations.viewBalance}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => handleOpenModal(customer)}
-                className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                title={translations.edit}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setDeleteConfirm(customer.id)}
-                className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                title={translations.delete}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </motion.button>
-            </div>
-          )}
-        />
+        {viewMode === "table" ? (
+          <Table
+            data={customers}
+            columns={columns}
+            total={totalItems}
+            page={page}
+            perPage={perPage}
+            onPageChange={setPage}
+            onPerPageChange={setPerPage}
+            onSort={(key, dir) => {
+              setSortBy(key);
+              setSortOrder(dir);
+            }}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            loading={loading}
+            actions={(customer) => (
+              <div className="flex items-center gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => handleOpenBalanceModal(customer)}
+                  className="p-2 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
+                  title={translations.viewBalance}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => handleOpenModal(customer)}
+                  className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
+                  title={translations.edit}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setDeleteConfirm(customer.id)}
+                  className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                  title={translations.delete}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </motion.button>
+              </div>
+            )}
+          />
+        ) : (
+          <ThumbnailGrid
+            data={customers}
+            total={totalItems}
+            page={page}
+            perPage={perPage}
+            onPageChange={setPage}
+            onPerPageChange={setPerPage}
+            loading={loading}
+            renderCard={(c) => {
+              const balance = customerBalances[c.id];
+              return (
+                <div className="rounded-2xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800/80 p-4 shadow-lg hover:shadow-xl hover:border-purple-300 dark:hover:border-purple-600 transition-all h-full flex flex-col">
+                  <div className="flex justify-center mb-3">
+                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-md">
+                      {c.full_name.charAt(0)}
+                    </div>
+                  </div>
+                  <div className="font-bold text-gray-900 dark:text-white text-center mb-1 truncate" title={c.full_name}>{c.full_name}</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400 text-center font-mono" dir="ltr">{c.phone}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-500 text-center truncate mb-2" title={c.address}>{c.address}</div>
+                  {balance != null && (
+                    <div className="text-xs text-center mb-2">
+                      <span className="text-purple-600 dark:text-purple-400 font-semibold">باقیمانده: </span>
+                      <span>{balance.totalRemaining.toLocaleString("en-US")} افغانی</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-center gap-1.5 mt-auto pt-2">
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleOpenBalanceModal(c)} className="p-2 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg" title={translations.viewBalance}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></motion.button>
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleOpenModal(c)} className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg" title={translations.edit}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></motion.button>
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setDeleteConfirm(c.id)} className="p-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg" title={translations.delete}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></motion.button>
+                  </div>
+                </div>
+              );
+            }}
+          />
+        )}
 
         {/* Modal for Add/Edit */}
         <AnimatePresence>

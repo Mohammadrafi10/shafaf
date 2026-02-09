@@ -15,6 +15,8 @@ import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import Table from "./common/Table";
 import PageHeader from "./common/PageHeader";
+import ViewModeToggle, { type ViewMode } from "./common/ViewModeToggle";
+import ThumbnailGrid from "./common/ThumbnailGrid";
 import { Search } from "lucide-react";
 import JsBarcode from "jsbarcode";
 import * as QRCode from "qrcode";
@@ -113,6 +115,17 @@ export default function ProductManagement({ onBack }: ProductManagementProps) {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("created_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
+  // View mode: table or thumbnail (persist per page)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem("productViewMode");
+      return (saved === "thumbnail" ? "thumbnail" : "table") as ViewMode;
+    } catch { return "table"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("productViewMode", viewMode); } catch { /* ignore */ }
+  }, [viewMode]);
 
   useEffect(() => {
     loadData();
@@ -482,7 +495,14 @@ export default function ProductManagement({ onBack }: ProductManagementProps) {
               variant: "primary" as const
             }
           ]}
-        />
+        >
+          <ViewModeToggle
+            viewMode={viewMode}
+            onChange={setViewMode}
+            tableLabel="لیست"
+            thumbnailLabel="کارت"
+          />
+        </PageHeader>
 
         {/* Enhanced Search Bar */}
         <motion.div
@@ -506,77 +526,129 @@ export default function ProductManagement({ onBack }: ProductManagementProps) {
           />
         </motion.div>
 
-        {/* Enhanced Table Container */}
+        {/* Table or Thumbnail Grid */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
           className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl shadow-2xl border border-purple-100/50 dark:border-purple-900/30 overflow-hidden"
         >
-          <Table
-            data={products}
-            columns={columns}
-            total={totalItems}
-            page={page}
-            perPage={perPage}
-            onPageChange={setPage}
-            onPerPageChange={setPerPage}
-            onSort={(key, dir) => {
-              setSortBy(key);
-              setSortOrder(dir);
-            }}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            loading={loading}
-            actions={(product) => (
-              <div className="flex items-center gap-2">
-                <motion.button
-                  whileHover={{ scale: 1.15, rotate: 5 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => handleOpenModal(product)}
-                  className="p-2.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg"
-                  title={translations.edit}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.15, rotate: -5 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setBarcodeModalOpen(product)}
-                  className="p-2.5 bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-md hover:shadow-lg"
-                  title={translations.generateBarcode}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.15, rotate: 5 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setQrCodeModalOpen(product)}
-                  className="p-2.5 bg-gradient-to-br from-purple-500 to-indigo-600 text-white rounded-xl hover:from-purple-600 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
-                  title={translations.generateQRCode}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                  </svg>
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.15, rotate: -5 }}
-                  whileTap={{ scale: 0.9 }}
-                  onClick={() => setDeleteConfirm(product.id)}
-                  className="p-2.5 bg-gradient-to-br from-red-500 to-pink-600 text-white rounded-xl hover:from-red-600 hover:to-pink-700 transition-all duration-200 shadow-md hover:shadow-lg"
-                  title={translations.delete}
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </motion.button>
-              </div>
-            )}
-          />
+          {viewMode === "table" ? (
+            <Table
+              data={products}
+              columns={columns}
+              total={totalItems}
+              page={page}
+              perPage={perPage}
+              onPageChange={setPage}
+              onPerPageChange={setPerPage}
+              onSort={(key, dir) => {
+                setSortBy(key);
+                setSortOrder(dir);
+              }}
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              loading={loading}
+              actions={(product) => (
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.15, rotate: 5 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => handleOpenModal(product)}
+                    className="p-2.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-md hover:shadow-lg"
+                    title={translations.edit}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.15, rotate: -5 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setBarcodeModalOpen(product)}
+                    className="p-2.5 bg-gradient-to-br from-green-500 to-emerald-600 text-white rounded-xl hover:from-green-600 hover:to-emerald-700 transition-all duration-200 shadow-md hover:shadow-lg"
+                    title={translations.generateBarcode}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.15, rotate: 5 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setQrCodeModalOpen(product)}
+                    className="p-2.5 bg-gradient-to-br from-purple-500 to-indigo-600 text-white rounded-xl hover:from-purple-600 hover:to-indigo-700 transition-all duration-200 shadow-md hover:shadow-lg"
+                    title={translations.generateQRCode}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                    </svg>
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.15, rotate: -5 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setDeleteConfirm(product.id)}
+                    className="p-2.5 bg-gradient-to-br from-red-500 to-pink-600 text-white rounded-xl hover:from-red-600 hover:to-pink-700 transition-all duration-200 shadow-md hover:shadow-lg"
+                    title={translations.delete}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </motion.button>
+                </div>
+              )}
+            />
+          ) : (
+            <ThumbnailGrid
+              data={products}
+              total={totalItems}
+              page={page}
+              perPage={perPage}
+              onPageChange={setPage}
+              onPerPageChange={setPerPage}
+              loading={loading}
+              renderCard={(p) => (
+                <div className="rounded-2xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800/80 p-4 shadow-lg hover:shadow-xl hover:border-purple-300 dark:hover:border-purple-600 transition-all h-full flex flex-col">
+                  <div className="flex justify-center mb-3">
+                    {p.image_path ? (
+                      <div className="w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 shadow-md border border-gray-200 dark:border-gray-600">
+                        <img src={p.image_path} alt={p.name} className="w-full h-full object-cover" onError={(e) => {
+                          const t = e.target as HTMLImageElement;
+                          t.style.display = "none";
+                          const par = t.parentElement;
+                          if (par) par.innerHTML = `<div class="w-full h-full bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex items-center justify-center text-white font-bold text-lg">${p.name.charAt(0)}</div>`;
+                        }} />
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 bg-gradient-to-br from-purple-500 via-blue-500 to-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md">
+                        {p.name.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="font-bold text-gray-900 dark:text-white text-center mb-1 truncate" title={p.name}>{p.name}</div>
+                  {p.description && <div className="text-xs text-gray-600 dark:text-gray-400 text-center truncate mb-1">{p.description}</div>}
+                  <div className="flex flex-wrap justify-center gap-1 mb-2">
+                    {p.price != null && (
+                      <span className="text-sm font-semibold text-gray-800 dark:text-white">
+                        {p.price.toLocaleString("en-US")}
+                        {getCurrencyName(p.currency_id) && <span className="text-xs text-amber-600 dark:text-amber-400"> {getCurrencyName(p.currency_id)}</span>}
+                      </span>
+                    )}
+                    {p.stock_quantity != null && (
+                      <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded">{p.stock_quantity.toLocaleString("en-US")}{p.unit ? ` ${p.unit}` : ""}</span>
+                    )}
+                  </div>
+                  {p.bar_code && <div className="text-xs text-gray-500 font-mono mb-2 text-center">🏷️ {p.bar_code}</div>}
+                  <div className="flex items-center justify-center gap-1.5 mt-auto pt-2">
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleOpenModal(p)} className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg" title={translations.edit}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></motion.button>
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setBarcodeModalOpen(p)} className="p-2 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg" title={translations.generateBarcode}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></motion.button>
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setQrCodeModalOpen(p)} className="p-2 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg" title={translations.generateQRCode}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg></motion.button>
+                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setDeleteConfirm(p.id)} className="p-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg" title={translations.delete}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></motion.button>
+                  </div>
+                </div>
+              )}
+            />
+          )}
         </motion.div>
 
         {/* Modal for Add/Edit */}
