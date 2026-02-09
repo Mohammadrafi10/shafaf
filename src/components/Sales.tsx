@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 import {
@@ -542,8 +542,8 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         }
     };
 
-    const handleOpenModal = async (sale?: Sale) => {
-        if (sale) {
+    const handleOpenModal = useCallback(async (sale?: Sale) => {
+        if (sale && loadSaleDetails) {
             await loadSaleDetails(sale.id);
         } else {
             setEditingSale(null);
@@ -572,7 +572,20 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             setProductBatches({});
         }
         setIsModalOpen(true);
-    };
+    }, [baseCurrency, loadSaleDetails]);
+
+    // Listen for external modal open request (e.g., from keyboard shortcut)
+    // This must be after handleOpenModal is defined
+    useEffect(() => {
+        const handleOpen = () => {
+            handleOpenModal();
+        };
+        // Store the handler so parent can call it
+        (window as any).__openSalesModal = handleOpen;
+        return () => {
+            delete (window as any).__openSalesModal;
+        };
+    }, [handleOpenModal]);
 
     const handleCloseModal = () => {
         setIsModalOpen(false);

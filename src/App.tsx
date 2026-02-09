@@ -222,6 +222,47 @@ function App() {
     };
   }, [user]);
 
+  // Global keyboard shortcut: Ctrl+T to open sales create modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check for Ctrl+T (or Cmd+T on Mac)
+      // Ignore if user is typing in an input, textarea, or contenteditable element
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || 
+                      target.tagName === 'TEXTAREA' || 
+                      target.isContentEditable ||
+                      target.closest('input, textarea, [contenteditable="true"]');
+      
+      if ((e.ctrlKey || e.metaKey) && e.key === 't' && !isInput) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Navigate to sales page if not already there
+        if (currentPage !== "sales") {
+          setCurrentPage("sales");
+          // Wait a bit for the component to mount, then trigger modal
+          setTimeout(() => {
+            const openModal = (window as any).__openSalesModal;
+            if (openModal && typeof openModal === 'function') {
+              openModal();
+            }
+          }, 150);
+        } else {
+          // Already on sales page, just open the modal
+          const openModal = (window as any).__openSalesModal;
+          if (openModal && typeof openModal === 'function') {
+            openModal();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [currentPage]);
+
   const runLicenseCheck = useCallback(async () => {
     try {
       setLicenseReason(null);
