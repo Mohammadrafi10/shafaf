@@ -9,6 +9,7 @@ import { generateReport, type ReportJson, type ReportSection } from "../utils/pu
 import { formatPersianNumber } from "../utils/dashboard";
 import { sanitizeFilename, sanitizeSheetName, formatCellForExcel } from "../utils/exportHelpers";
 import { loadPuter, isPuterAvailable, LS_PUTER_APP_ID, LS_PUTER_TOKEN, LS_PUTER_MODEL } from "../utils/puter";
+import { getCompanySettings, type CompanySettings } from "../utils/company";
 
 interface AiReportProps {
   onBack: () => void;
@@ -158,6 +159,7 @@ export default function AiReport({ onBack }: AiReportProps) {
   const [applying, setApplying] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -179,6 +181,19 @@ export default function AiReport({ onBack }: AiReportProps) {
         setHistory(Array.isArray(arr) ? arr.slice(0, HISTORY_MAX) : []);
       }
     } catch (_) {}
+  }, []);
+
+  // Load company settings on mount
+  useEffect(() => {
+    const loadCompanySettings = async () => {
+      try {
+        const settings = await getCompanySettings();
+        setCompanySettings(settings);
+      } catch (error) {
+        console.error("Error loading company settings:", error);
+      }
+    };
+    loadCompanySettings();
   }, []);
 
   const handleApply = async () => {
@@ -330,6 +345,43 @@ export default function AiReport({ onBack }: AiReportProps) {
             background: white !important;
             width: 100% !important;
             max-width: 100% !important;
+          }
+          .company-header-print {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            align-items: flex-start !important;
+            justify-content: space-between !important;
+            gap: 1.5rem !important;
+            margin-bottom: 2rem !important;
+            padding-bottom: 1rem !important;
+            border-bottom: 2px solid #e5e7eb !important;
+          }
+          .company-logo-print {
+            width: 80px !important;
+            height: 80px !important;
+            object-fit: contain !important;
+          }
+          .company-info-print h2 {
+            font-size: 1.5rem !important;
+            font-weight: bold !important;
+            margin: 0 0 0.5rem 0 !important;
+            color: #111827 !important;
+          }
+          .company-info-print p {
+            margin: 0.25rem 0 !important;
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+          }
+          .company-report-title h2 {
+            font-size: 1.5rem !important;
+            font-weight: bold !important;
+            margin: 0 !important;
+            color: #111827 !important;
+          }
+          .company-report-title p {
+            margin: 0.25rem 0 0 0 !important;
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
           }
         }
       `}</style>
@@ -570,11 +622,40 @@ export default function AiReport({ onBack }: AiReportProps) {
               animate={{ opacity: 1, y: 0 }}
             >
               <div ref={reportRef} className="space-y-8" data-pdf-root>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{report.title}</h2>
-                  {report.summary && (
-                    <p className="mt-2 text-gray-600 dark:text-gray-400">{report.summary}</p>
-                  )}
+                {/* Merged Report Header: Company + Report title & summary */}
+                <div className="flex flex-wrap items-start justify-between gap-6 mb-6 pb-4 border-b-2 border-gray-200 dark:border-gray-700 company-header-print">
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    {companySettings?.logo && (
+                      <img
+                        src={companySettings.logo}
+                        alt="Company Logo"
+                        className="w-20 h-20 object-contain shrink-0 company-logo-print"
+                      />
+                    )}
+                    <div className="company-info-print min-w-0">
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                        {companySettings?.name || "شرکت"}
+                      </h2>
+                      {companySettings?.phone && (
+                        <p className="text-gray-600 dark:text-gray-400 text-sm mb-0.5">
+                          تلفن: {companySettings.phone}
+                        </p>
+                      )}
+                      {companySettings?.address && (
+                        <p className="text-gray-600 dark:text-gray-400 text-sm">
+                          آدرس: {companySettings.address}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-end company-report-title shrink-0">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{report.title}</h2>
+                    {report.summary && (
+                      <p className="mt-1 text-gray-600 dark:text-gray-400 text-sm">
+                        {report.summary}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 {report.sections.map((sec, i) => (
                   <section key={i}>
