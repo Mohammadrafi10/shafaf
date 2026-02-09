@@ -176,7 +176,7 @@ export default function License({ reason, onLicenseValid, onLicenseInvalid }: Li
           transition={{ duration: 0.4, delay: 0.1 }}
           className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-3xl shadow-2xl p-8 border border-purple-100/50 dark:border-purple-900/30"
         >
-          {/* Logo & App Name Section */}
+          {/* Galaxy Logo & App Name Section */}
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
@@ -189,18 +189,19 @@ export default function License({ reason, onLicenseValid, onLicenseInvalid }: Li
               className="w-24 h-24 rounded-2xl flex items-center justify-center shadow-lg overflow-hidden bg-white mb-4"
             >
               <img 
-                src="/logo.jpeg" 
-                alt="شفاف Logo" 
+                src="/Galaxy%20LOGO.jpeg"
+                alt="Galaxy Technology Logo" 
                 className="w-full h-full object-contain"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
+                  target.style.display = "none";
                 }}
               />
             </motion.div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-1">
               شفاف
             </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Galaxy Technology</p>
           </motion.div>
 
           {/* Title */}

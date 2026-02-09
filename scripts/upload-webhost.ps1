@@ -76,16 +76,16 @@ function Send-FtpFile {
     }
 }
 
-# Collect all files (excluding config.local.php and config.local.php.example)
+# Collect all files (excluding config.local.php, config.local.php.example, and .env)
 $filesToUpload = @()
-$exclude = @("config.local.php", "config.local.php.example")
+$exclude = @("config.local.php", "config.local.php.example", ".env")
 Get-ChildItem -Path $WebhostPath -Recurse -File | Where-Object { $_.Name -notin $exclude } | ForEach-Object {
     $rel = $_.FullName.Substring($WebhostPath.Length).TrimStart('\', '/')
     $filesToUpload += @{ Local = $_.FullName; Relative = $rel }
 }
 
 if ($filesToUpload.Count -eq 0) {
-    Write-Host "No files to upload (excluding config.local.php, config.local.php.example)."
+    Write-Host "No files to upload (excluding config.local.php, config.local.php.example, .env)."
     exit 0
 }
 

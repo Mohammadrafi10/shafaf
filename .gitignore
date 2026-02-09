@@ -17,8 +17,9 @@ dist-ssr
 .env.local
 .env.*.local
 
-# License webhost local config (DB credentials)
+# License webhost local config (DB credentials) and superadmin password
 webhost/config.local.php
+webhost/.env
 
 # Tauri signing keys (DO NOT COMMIT!)
 TAURI_SIGNING_PRIVATE_KEY.txt

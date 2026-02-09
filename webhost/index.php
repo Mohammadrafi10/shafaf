@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/auth.php';
+webhost_require_superadmin();
 require_once __DIR__ . '/db.php';
 
 $pdo = license_pdo();
@@ -39,7 +41,7 @@ if (isset($_GET['error'])) {
     <div class="app">
         <header class="page-header">
             <h1 class="page-title">License management</h1>
-            <a href="create.php" class="btn btn--primary">Add license</a>
+            <span><a href="create.php" class="btn btn--primary">Add license</a> <a href="logout.php" class="btn btn--secondary">Log out</a></span>
         </header>
 
         <?php if ($message): ?>

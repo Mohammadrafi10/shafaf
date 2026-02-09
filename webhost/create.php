@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/auth.php';
+webhost_require_superadmin();
 require_once __DIR__ . '/db.php';
 
 $error = '';
