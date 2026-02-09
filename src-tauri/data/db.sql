@@ -337,7 +337,7 @@ CREATE TABLE IF NOT EXISTS deductions (
 CREATE TABLE IF NOT EXISTS company_settings (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     name TEXT NOT NULL,
-    logo TEXT,
+    logo MEDIUMTEXT,
     phone TEXT,
     address TEXT,
     font TEXT,

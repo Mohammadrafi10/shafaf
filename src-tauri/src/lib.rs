@@ -6381,12 +6381,19 @@ pub struct CompanySettings {
 }
 
 /// Initialize company_settings table (schema from db.sql on first open).
-/// Ensures auto_backup_dir column exists for existing databases.
+/// Ensures auto_backup_dir column exists and logo column is MEDIUMTEXT (for base64 images).
 #[tauri::command]
 fn init_company_settings_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<String, String> {
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
     if let Err(e) = db.execute("ALTER TABLE company_settings ADD COLUMN auto_backup_dir TEXT NULL", ()) {
+        let msg = e.to_string();
+        if !msg.contains("Duplicate column") && !msg.contains("1060") {
+            return Err(msg);
+        }
+    }
+    // Allow larger logo (base64 data URLs); TEXT is 64KB, MEDIUMTEXT is 16MB
+    if let Err(e) = db.execute("ALTER TABLE company_settings MODIFY COLUMN logo MEDIUMTEXT", ()) {
         let msg = e.to_string();
         if !msg.contains("Duplicate column") && !msg.contains("1060") {
             return Err(msg);

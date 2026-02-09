@@ -3,7 +3,7 @@ import { PurchaseWithItems, PurchaseItem } from "../utils/purchase";
 import { Supplier } from "../utils/supplier";
 import { Product } from "../utils/product";
 import { Unit } from "../utils/unit";
-import { CompanySettings } from "../utils/company";
+import { CompanySettings, getCompanySettings } from "../utils/company";
 import { georgianToPersian } from "../utils/date";
 import * as QRCode from "qrcode";
 
@@ -29,6 +29,19 @@ export default function PurchaseInvoice({
     const printRef = useRef<HTMLDivElement>(null);
     const qrCodeCanvasRef = useRef<HTMLCanvasElement>(null);
     const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>("");
+
+    // Resolve company from company_settings: use prop when present, otherwise fetch
+    const [fetchedSettings, setFetchedSettings] = useState<CompanySettings | null>(null);
+    const company = companySettings ?? fetchedSettings;
+    useEffect(() => {
+        if (companySettings?.name != null || companySettings?.logo != null) {
+            setFetchedSettings(null);
+            return;
+        }
+        getCompanySettings()
+            .then(setFetchedSettings)
+            .catch((err) => console.error("Failed to load company settings for invoice:", err));
+    }, [companySettings?.name, companySettings?.logo]);
 
     // Generate QR code on mount
     useEffect(() => {
@@ -537,17 +550,17 @@ export default function PurchaseInvoice({
                             <div className="company-header">
                                 <div className="flex gap-6 items-center">
                                     <div className="company-logo-container">
-                                        {companySettings?.logo ? (
-                                            <img src={companySettings.logo} alt="Logo" className="company-logo-img" />
+                                        {company?.logo ? (
+                                            <img src={company.logo} alt="Logo" className="company-logo-img" />
                                         ) : (
                                             <div className="text-emerald-600 font-bold text-3xl">S</div>
                                         )}
                                     </div>
                                     <div className="company-info-text">
                                         <div className="invoice-title-badge">فاکتور خرید رسمی</div>
-                                        <h1>{companySettings?.name || "نام شرکت شما"}</h1>
+                                        <h1>{company?.name || "نام شرکت شما"}</h1>
                                         <div className="company-info-subtitle">
-                                            {companySettings?.phone && <span>{companySettings.phone} 📞</span>}
+                                            {company?.phone && <span>{company.phone} 📞</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -582,9 +595,9 @@ export default function PurchaseInvoice({
                                 <div className="info-card">
                                     <h3>خریدار (شرکت شما)</h3>
                                     <div className="info-card-content">
-                                        <div className="info-main-text">{companySettings?.name || "شرکت مرکزی"}</div>
+                                        <div className="info-main-text">{company?.name || "شرکت مرکزی"}</div>
                                         <div className="info-sub-text">
-                                            {companySettings?.address || "آدرس شرکت در تنظیمات ثبت نشده است."}
+                                            {company?.address || "آدرس شرکت در تنظیمات ثبت نشده است."}
                                         </div>
                                     </div>
                                 </div>
