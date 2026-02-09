@@ -296,7 +296,9 @@ export default function Report({ onBack }: ReportProps) {
           }
           .company-header-print {
             display: flex !important;
-            align-items: center !important;
+            flex-wrap: wrap !important;
+            align-items: flex-start !important;
+            justify-content: space-between !important;
             gap: 1.5rem !important;
             margin-bottom: 2rem !important;
             padding-bottom: 1rem !important;
@@ -315,6 +317,17 @@ export default function Report({ onBack }: ReportProps) {
           }
           .company-info-print p {
             margin: 0.25rem 0 !important;
+            color: #4b5563 !important;
+            font-size: 0.875rem !important;
+          }
+          .company-report-title h2 {
+            font-size: 1.5rem !important;
+            font-weight: bold !important;
+            margin: 0 !important;
+            color: #111827 !important;
+          }
+          .company-report-title p {
+            margin: 0.25rem 0 0 0 !important;
             color: #4b5563 !important;
             font-size: 0.875rem !important;
           }
@@ -542,40 +555,39 @@ export default function Report({ onBack }: ReportProps) {
               className="space-y-8 bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl border border-purple-200/50 dark:border-purple-800/30 shadow-xl p-6"
               data-pdf-root
             >
-              {/* Company Header - Visible on screen and in print */}
-              {companySettings && (
-                <div className="flex items-center gap-6 mb-6 pb-4 border-b-2 border-gray-200 dark:border-gray-700 company-header-print">
-                  {companySettings.logo && (
-                    <img 
-                      src={companySettings.logo} 
-                      alt="Company Logo" 
-                      className="w-20 h-20 object-contain company-logo-print"
+              {/* Merged Report Header: Company + Report title & date range */}
+              <div className="flex flex-wrap items-start justify-between gap-6 mb-6 pb-4 border-b-2 border-gray-200 dark:border-gray-700 company-header-print">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  {companySettings?.logo && (
+                    <img
+                      src={companySettings.logo}
+                      alt="Company Logo"
+                      className="w-20 h-20 object-contain shrink-0 company-logo-print"
                     />
                   )}
-                  <div className="flex-1 company-info-print">
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                      {companySettings.name}
+                  <div className="company-info-print min-w-0">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                      {companySettings?.name || "شرکت"}
                     </h2>
-                    {companySettings.phone && (
-                      <p className="text-gray-600 dark:text-gray-400 mb-1">
+                    {companySettings?.phone && (
+                      <p className="text-gray-600 dark:text-gray-400 text-sm mb-0.5">
                         تلفن: {companySettings.phone}
                       </p>
                     )}
-                    {companySettings.address && (
-                      <p className="text-gray-600 dark:text-gray-400">
+                    {companySettings?.address && (
+                      <p className="text-gray-600 dark:text-gray-400 text-sm">
                         آدرس: {companySettings.address}
                       </p>
                     )}
                   </div>
                 </div>
-              )}
-
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.title}</h2>
-                <p className="mt-2 text-gray-600 dark:text-gray-400">
-                  از تاریخ: {georgianToPersian(reportData.dateRange.from)} تا تاریخ:{" "}
-                  {georgianToPersian(reportData.dateRange.to)}
-                </p>
+                <div className="text-end company-report-title shrink-0">
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{reportData.title}</h2>
+                  <p className="mt-1 text-gray-600 dark:text-gray-400 text-sm">
+                    از تاریخ: {georgianToPersian(reportData.dateRange.from)} تا تاریخ:{" "}
+                    {georgianToPersian(reportData.dateRange.to)}
+                  </p>
+                </div>
               </div>
 
               {reportData.sections.map((section, index) => (
