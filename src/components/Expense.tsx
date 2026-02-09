@@ -366,7 +366,13 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
             handleCloseModal();
             await loadData();
         } catch (error: any) {
-            toast.error(editingExpense ? translations.errors.update : translations.errors.create);
+            // Extract error message from backend
+            // Tauri errors can be strings or Error objects
+            const errorMessage = typeof error === "string" 
+                ? error 
+                : (error as Error)?.message || error?.toString() || String(error);
+            // Show the actual error message from backend (e.g., "Insufficient balance in account. Available: 240, Required: 500")
+            toast.error(errorMessage || (editingExpense ? translations.errors.update : translations.errors.create));
             console.error("Error saving expense:", error);
         } finally {
             setLoading(false);
