@@ -76,14 +76,22 @@ const TABLE_WHITELIST = new Set([
   "accounts", "account_transactions"
 ]);
 
-const SYSTEM_PROMPT = `You are a report generator for a Persian/English finance and inventory app.
+const SYSTEM_PROMPT = `You are a report generator for a Persian/English finance and inventory app using MySQL database.
 
 Tools:
-- Use describe_table when unsure about a table's columns before writing SQL.
-- Use run_query to fetch data. SQL must be SELECT only. If run_query returns an error, try a simpler or corrected query.
+- Use describe_table when unsure about a table's columns before writing SQL. This returns column names and types.
+- Use run_query to fetch data. SQL must be SELECT only (or WITH for CTEs). If run_query returns an error, analyze the error message and try a simpler or corrected query.
 - Use SUM, COUNT, AVG, GROUP BY, JOIN across tables. Prefer LIMIT 500 for large listings.
+- MySQL syntax: Use backticks for table/column names if they contain special characters. Use DATE() function for date comparisons. Use DATE_FORMAT() for date formatting.
 
-Common joins: sales + sale_items + products (sale_items.sale_id=sales.id, sale_items.product_id=products.id); purchases + purchase_items + products; expenses + expense_types. For comparable amounts across currencies, prefer base_amount or total in base currency.
+Common joins: 
+- sales + sale_items + products (sale_items.sale_id=sales.id, sale_items.product_id=products.id)
+- purchases + purchase_items + products (purchase_items.purchase_id=purchases.id, purchase_items.product_id=products.id)
+- expenses + expense_types (expenses.expense_type_id=expense_types.id)
+- sales + customers (sales.customer_id=customers.id)
+- purchases + suppliers (purchases.supplier_id=suppliers.id)
+
+For comparable amounts across currencies, prefer base_amount or total in base currency.
 
 Chart types: use "line" for time series, "bar" for categories, "pie"/"donut" for composition shares.
 
@@ -156,7 +164,17 @@ const DESCRIBE_TABLE_TOOL = {
 
 function isSelectOnly(sql: string): boolean {
   const t = sql.trim().toUpperCase();
-  return t.startsWith("SELECT");
+  // Check for SELECT statements, allow WITH clauses (CTEs) and subqueries
+  const normalized = t.replace(/\s+/g, " ");
+  // Block dangerous keywords
+  const dangerousKeywords = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE", "EXEC", "EXECUTE"];
+  for (const keyword of dangerousKeywords) {
+    if (normalized.includes(` ${keyword} `) || normalized.startsWith(`${keyword} `)) {
+      return false;
+    }
+  }
+  // Must start with SELECT or WITH (for CTEs)
+  return normalized.startsWith("SELECT") || normalized.startsWith("WITH");
 }
 
 async function handleRunQuery(args: { sql?: string; params?: string }): Promise<string> {
@@ -165,7 +183,7 @@ async function handleRunQuery(args: { sql?: string; params?: string }): Promise<
     return JSON.stringify({ error: "Missing sql" });
   }
   if (!isSelectOnly(sql)) {
-    return JSON.stringify({ error: "Only SELECT queries are allowed" });
+    return JSON.stringify({ error: "Only SELECT queries are allowed. Dangerous operations like DROP, DELETE, UPDATE, INSERT, ALTER are blocked." });
   }
   let params: unknown[] = [];
   try {
@@ -174,8 +192,17 @@ async function handleRunQuery(args: { sql?: string; params?: string }): Promise<
     params = [];
   }
   if (!Array.isArray(params)) params = [];
-  const res = await queryDatabase(sql, params);
-  return JSON.stringify({ columns: res.columns, rows: res.rows });
+  try {
+    const res = await queryDatabase(sql, params);
+    return JSON.stringify({ columns: res.columns, rows: res.rows });
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return JSON.stringify({ 
+      error: `Query execution failed: ${errorMsg}. Check SQL syntax, table names, column names, and parameter types.`,
+      columns: [],
+      rows: []
+    });
+  }
 }
 
 async function handleDescribeTable(args: { table?: string }): Promise<string> {
@@ -184,13 +211,32 @@ async function handleDescribeTable(args: { table?: string }): Promise<string> {
     return JSON.stringify({ error: "Unknown or disallowed table. Use one of: " + [...TABLE_WHITELIST].slice(0, 10).join(", ") + ", ..." });
   }
   try {
-    const res = await queryDatabase(`PRAGMA table_info(${table})`, []);
-    const nameIdx = res.columns.indexOf("name");
-    const typeIdx = res.columns.indexOf("type");
-    const columns = res.rows.map((row) => ({ name: nameIdx >= 0 ? row[nameIdx] : null, type: typeIdx >= 0 ? row[typeIdx] : null }));
+    // Use MySQL DESCRIBE syntax instead of SQLite PRAGMA
+    const res = await queryDatabase(`DESCRIBE ${table}`, []);
+    // MySQL DESCRIBE returns: Field, Type, Null, Key, Default, Extra
+    const fieldIdx = res.columns.indexOf("Field");
+    const typeIdx = res.columns.indexOf("Type");
+    const columns = res.rows.map((row) => ({ 
+      name: fieldIdx >= 0 ? row[fieldIdx] : null, 
+      type: typeIdx >= 0 ? row[typeIdx] : null 
+    }));
     return JSON.stringify({ columns });
-  } catch {
-    return JSON.stringify({ error: `Could not get schema for table: ${table}. Refer to the system schema.` });
+  } catch (error) {
+    // Fallback: try SHOW COLUMNS if DESCRIBE fails
+    try {
+      const res = await queryDatabase(`SHOW COLUMNS FROM ${table}`, []);
+      const fieldIdx = res.columns.indexOf("Field");
+      const typeIdx = res.columns.indexOf("Type");
+      const columns = res.rows.map((row) => ({ 
+        name: fieldIdx >= 0 ? row[fieldIdx] : null, 
+        type: typeIdx >= 0 ? row[typeIdx] : null 
+      }));
+      return JSON.stringify({ columns });
+    } catch (fallbackError) {
+      return JSON.stringify({ 
+        error: `Could not get schema for table: ${table}. Refer to the system schema. Details: ${(fallbackError as Error).message}` 
+      });
+    }
   }
 }
 
