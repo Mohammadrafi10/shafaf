@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface Expense {
     id: number;
     expense_type_id: number;
+    account_id?: number | null;
     amount: number;
     currency: string;
     rate: number;
@@ -25,6 +26,7 @@ export async function initExpensesTable(): Promise<string> {
 /**
  * Create a new expense
  * @param expense_type_id Expense type ID
+ * @param account_id Account ID (optional)
  * @param amount Expense amount
  * @param currency Currency name
  * @param rate Exchange rate
@@ -36,6 +38,7 @@ export async function initExpensesTable(): Promise<string> {
  */
 export async function createExpense(
     expense_type_id: number,
+    account_id: number | null | undefined,
     amount: number,
     currency: string,
     rate: number,
@@ -46,6 +49,7 @@ export async function createExpense(
 ): Promise<Expense> {
     return await invoke<Expense>("create_expense", {
         expenseTypeId: expense_type_id,
+        accountId: account_id || null,
         amount,
         currency,
         rate,
@@ -102,6 +106,7 @@ export async function getExpense(id: number): Promise<Expense> {
  * Update an expense
  * @param id Expense ID
  * @param expense_type_id Expense type ID
+ * @param account_id Account ID (optional)
  * @param amount Expense amount
  * @param currency Currency name
  * @param rate Exchange rate
@@ -114,6 +119,7 @@ export async function getExpense(id: number): Promise<Expense> {
 export async function updateExpense(
     id: number,
     expense_type_id: number,
+    account_id: number | null | undefined,
     amount: number,
     currency: string,
     rate: number,
@@ -125,6 +131,7 @@ export async function updateExpense(
     return await invoke<Expense>("update_expense", {
         id,
         expenseTypeId: expense_type_id,
+        accountId: account_id || null,
         amount,
         currency,
         rate,

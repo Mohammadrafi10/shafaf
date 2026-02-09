@@ -18,6 +18,7 @@ import {
     type ExpenseType,
 } from "../utils/expense_type";
 import { getCurrencies, type Currency } from "../utils/currency";
+import { getAccounts, type Account } from "../utils/account";
 import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import PersianDatePicker from "./PersianDatePicker";
@@ -92,6 +93,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
     const [currencies, setCurrencies] = useState<Currency[]>([]);
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [loading, setLoading] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isExpenseTypeModalOpen, setIsExpenseTypeModalOpen] = useState(false);
@@ -100,6 +102,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
     const [editingExpenseType, setEditingExpenseType] = useState<ExpenseType | null>(null);
     const [formData, setFormData] = useState({
         expense_type_id: "",
+        account_id: "",
         amount: "",
         currency: "",
         rate: "1",
@@ -142,16 +145,18 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                 console.log("Table initialization:", err);
             }
 
-            const [expensesResponse, expenseTypesData, currenciesData] = await Promise.all([
+            const [expensesResponse, expenseTypesData, currenciesData, accountsData] = await Promise.all([
                 getExpenses(page, perPage, search, sortBy, sortOrder),
                 getExpenseTypes(),
                 getCurrencies(),
+                getAccounts(),
             ]);
 
             setExpenses(expensesResponse.items);
             setTotalItems(expensesResponse.total);
             setExpenseTypes(expenseTypesData);
             setCurrencies(currenciesData);
+            setAccounts(accountsData);
         } catch (error: any) {
             toast.error(translations.errors.fetch);
             console.error("Error loading data:", error);
@@ -171,11 +176,22 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
         setFormData(prev => ({ ...prev, total: total.toFixed(2) }));
     }, [formData.amount, formData.rate]);
 
+    // Update exchange rate when currency changes
+    useEffect(() => {
+        if (formData.currency) {
+            const selectedCurrency = currencies.find(c => c.name === formData.currency);
+            if (selectedCurrency) {
+                setFormData(prev => ({ ...prev, rate: selectedCurrency.rate.toString() }));
+            }
+        }
+    }, [formData.currency, currencies]);
+
     const handleOpenModal = (expense?: Expense) => {
         if (expense) {
             setEditingExpense(expense);
             setFormData({
                 expense_type_id: expense.expense_type_id.toString(),
+                account_id: expense.account_id?.toString() || "",
                 amount: expense.amount.toString(),
                 currency: expense.currency,
                 rate: expense.rate.toString(),
@@ -188,6 +204,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
             setEditingExpense(null);
             setFormData({
                 expense_type_id: "",
+                account_id: "",
                 amount: "",
                 currency: "",
                 rate: "1",
@@ -205,6 +222,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
         setEditingExpense(null);
         setFormData({
             expense_type_id: "",
+            account_id: "",
             amount: "",
             currency: "",
             rate: "1",
@@ -313,6 +331,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
         const rate = parseFloat(formData.rate) || 1;
         const total = amount * rate;
         const expense_type_id = parseInt(formData.expense_type_id);
+        const account_id = formData.account_id ? parseInt(formData.account_id) : null;
 
         try {
             setLoading(true);
@@ -320,6 +339,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                 await updateExpense(
                     editingExpense.id,
                     expense_type_id,
+                    account_id,
                     amount,
                     formData.currency,
                     rate,
@@ -332,6 +352,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
             } else {
                 await createExpense(
                     expense_type_id,
+                    account_id,
                     amount,
                     formData.currency,
                     rate,
@@ -554,6 +575,24 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                                             {expenseTypes.map((expenseType) => (
                                                 <option key={expenseType.id} value={expenseType.id}>
                                                     {expenseType.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            حساب
+                                        </label>
+                                        <select
+                                            value={formData.account_id}
+                                            onChange={(e) => setFormData({ ...formData, account_id: e.target.value })}
+                                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                                            dir="rtl"
+                                        >
+                                            <option value="">انتخاب حساب (اختیاری)</option>
+                                            {accounts.filter(acc => acc.is_active).map((account) => (
+                                                <option key={account.id} value={account.id}>
+                                                    {account.name}
                                                 </option>
                                             ))}
                                         </select>

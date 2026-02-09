@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS expense_types (
 CREATE TABLE IF NOT EXISTS expenses (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     expense_type_id BIGINT NOT NULL,
+    account_id BIGINT,
     amount DOUBLE NOT NULL,
     currency TEXT NOT NULL,
     rate DOUBLE NOT NULL DEFAULT 1.0,
@@ -289,7 +290,8 @@ CREATE TABLE IF NOT EXISTS expenses (
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (expense_type_id) REFERENCES expense_types(id)
+    FOREIGN KEY (expense_type_id) REFERENCES expense_types(id),
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS employees (

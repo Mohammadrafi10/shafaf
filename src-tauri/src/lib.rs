@@ -5187,6 +5187,7 @@ fn delete_expense_type(
 pub struct Expense {
     pub id: i64,
     pub expense_type_id: i64,
+    pub account_id: Option<i64>,
     pub amount: f64,
     pub currency: String,
     pub rate: f64,
@@ -5211,6 +5212,7 @@ fn init_expenses_table(db_state: State<'_, Mutex<Option<Database>>>) -> Result<S
 fn create_expense(
     db_state: State<'_, Mutex<Option<Database>>>,
     expense_type_id: i64,
+    account_id: Option<i64>,
     amount: f64,
     currency: String,
     rate: f64,
@@ -5222,10 +5224,62 @@ fn create_expense(
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
+    // If account_id is provided, withdraw the expense amount from the account
+    if let Some(aid) = account_id {
+        // Get currency_id from currency name
+        let currency_sql = "SELECT id FROM currencies WHERE name = ? LIMIT 1";
+        let currency_ids = db
+            .query(currency_sql, one_param(currency.as_str()), |row| {
+                Ok(row_get::<i64>(row, 0)?)
+            })
+            .map_err(|e| format!("Failed to find currency: {}", e))?;
+        
+        if let Some(currency_id) = currency_ids.first() {
+            // Check if account has sufficient balance
+            let current_balance = get_account_balance_by_currency_internal(db, aid, *currency_id)
+                .unwrap_or(0.0);
+            
+            if current_balance < amount {
+                return Err(format!("Insufficient balance in account. Available: {}, Required: {}", current_balance, amount));
+            }
+            
+            // Create account transaction record for this expense (withdrawal)
+            let expense_notes = description.as_ref().map(|_s| format!("Expense: {}", description.as_ref().unwrap_or(&"".to_string())));
+            let expense_notes_str: Option<&str> = expense_notes.as_ref().map(|s| s.as_str());
+            let is_full_int = 0i64;
+            
+            let insert_transaction_sql = "INSERT INTO account_transactions (account_id, transaction_type, amount, currency, rate, total, transaction_date, is_full, notes) VALUES (?, 'withdraw', ?, ?, ?, ?, ?, ?, ?)";
+            db.execute(insert_transaction_sql, (
+                &aid,
+                &amount,
+                &currency,
+                &rate,
+                &total,
+                &date,
+                &is_full_int,
+                &expense_notes_str,
+            ))
+            .map_err(|e| format!("Failed to create account transaction: {}", e))?;
+            
+            // Subtract the expense amount from the balance
+            let new_balance = current_balance - amount;
+            
+            // Update account currency balance
+            update_account_currency_balance_internal(db, aid, *currency_id, new_balance)?;
+            
+            // Update account's current_balance
+            let new_account_balance = calculate_account_balance_internal(db, aid)?;
+            let update_balance_sql = "UPDATE accounts SET current_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+            db.execute(update_balance_sql, (new_account_balance, aid))
+                .map_err(|e| format!("Failed to update account balance: {}", e))?;
+        }
+    }
+
     // Insert new expense
-    let insert_sql = "INSERT INTO expenses (expense_type_id, amount, currency, rate, total, date, bill_no, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+    let insert_sql = "INSERT INTO expenses (expense_type_id, account_id, amount, currency, rate, total, date, bill_no, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     db.execute(insert_sql, (
         &expense_type_id,
+        &account_id,
         &amount,
         &currency,
         &rate,
@@ -5237,21 +5291,22 @@ fn create_expense(
         .map_err(|e| format!("Failed to insert expense: {}", e))?;
 
     // Get the created expense
-    let expense_sql = "SELECT id, expense_type_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses WHERE expense_type_id = ? AND date = ? ORDER BY id DESC LIMIT 1";
+    let expense_sql = "SELECT id, expense_type_id, account_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses WHERE expense_type_id = ? AND date = ? ORDER BY id DESC LIMIT 1";
     let expenses = db
         .query(expense_sql, (expense_type_id, date.as_str()), |row| {
             Ok(Expense {
                 id: row_get(row, 0)?,
                 expense_type_id: row_get(row, 1)?,
-                amount: row_get(row, 2)?,
-                currency: row_get(row, 3)?,
-                rate: row_get(row, 4)?,
-                total: row_get(row, 5)?,
-                date: row_get(row, 6)?,
-                bill_no: row_get(row, 7)?,
-                description: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
-                updated_at: row_get_string_or_datetime(row, 10)?,
+                account_id: row_get(row, 2)?,
+                amount: row_get(row, 3)?,
+                currency: row_get(row, 4)?,
+                rate: row_get(row, 5)?,
+                total: row_get(row, 6)?,
+                date: row_get(row, 7)?,
+                bill_no: row_get(row, 8)?,
+                description: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense: {}", e))?;
@@ -5313,7 +5368,7 @@ fn get_expenses(
         "ORDER BY date DESC, created_at DESC".to_string()
     };
 
-    let sql = format!("SELECT id, expense_type_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
+    let sql = format!("SELECT id, expense_type_id, account_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses {} {} LIMIT ? OFFSET ?", where_clause, order_clause);
     
     params.push(serde_json::Value::Number(serde_json::Number::from(per_page)));
     params.push(serde_json::Value::Number(serde_json::Number::from(offset)));
@@ -5324,15 +5379,16 @@ fn get_expenses(
             Ok(Expense {
                 id: row_get(row, 0)?,
                 expense_type_id: row_get(row, 1)?,
-                amount: row_get(row, 2)?,
-                currency: row_get(row, 3)?,
-                rate: row_get(row, 4)?,
-                total: row_get(row, 5)?,
-                date: row_get(row, 6)?,
-                bill_no: row_get(row, 7)?,
-                description: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
-                updated_at: row_get_string_or_datetime(row, 10)?,
+                account_id: row_get(row, 2)?,
+                amount: row_get(row, 3)?,
+                currency: row_get(row, 4)?,
+                rate: row_get(row, 5)?,
+                total: row_get(row, 6)?,
+                date: row_get(row, 7)?,
+                bill_no: row_get(row, 8)?,
+                description: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expenses: {}", e))?;
@@ -5354,21 +5410,22 @@ fn get_expense(db_state: State<'_, Mutex<Option<Database>>>, id: i64) -> Result<
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
-    let expense_sql = "SELECT id, expense_type_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses WHERE id = ?";
+    let expense_sql = "SELECT id, expense_type_id, account_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses WHERE id = ?";
     let expenses = db
         .query(expense_sql, one_param(id), |row| {
             Ok(Expense {
                 id: row_get(row, 0)?,
                 expense_type_id: row_get(row, 1)?,
-                amount: row_get(row, 2)?,
-                currency: row_get(row, 3)?,
-                rate: row_get(row, 4)?,
-                total: row_get(row, 5)?,
-                date: row_get(row, 6)?,
-                bill_no: row_get(row, 7)?,
-                description: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
-                updated_at: row_get_string_or_datetime(row, 10)?,
+                account_id: row_get(row, 2)?,
+                amount: row_get(row, 3)?,
+                currency: row_get(row, 4)?,
+                rate: row_get(row, 5)?,
+                total: row_get(row, 6)?,
+                date: row_get(row, 7)?,
+                bill_no: row_get(row, 8)?,
+                description: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense: {}", e))?;
@@ -5383,6 +5440,7 @@ fn update_expense(
     db_state: State<'_, Mutex<Option<Database>>>,
     id: i64,
     expense_type_id: i64,
+    account_id: Option<i64>,
     amount: f64,
     currency: String,
     rate: f64,
@@ -5394,10 +5452,98 @@ fn update_expense(
     let db_guard = db_state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let db = db_guard.as_ref().ok_or("No database is currently open")?;
 
+    // Get old expense to restore balance if needed
+    let old_expense_sql = "SELECT account_id, amount, currency FROM expenses WHERE id = ?";
+    let old_expenses = db
+        .query(old_expense_sql, one_param(id), |row| {
+            Ok((
+                row_get::<Option<i64>>(row, 0)?,
+                row_get::<f64>(row, 1)?,
+                row_get::<String>(row, 2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to fetch old expense: {}", e))?;
+    
+    if let Some((old_account_id, old_amount, old_currency)) = old_expenses.first() {
+        // If old expense had an account, restore the balance (deposit back)
+        if let Some(old_aid) = old_account_id {
+            let old_currency_sql = "SELECT id FROM currencies WHERE name = ? LIMIT 1";
+            let old_currency_ids = db
+                .query(old_currency_sql, one_param(old_currency.as_str()), |row| {
+                    Ok(row_get::<i64>(row, 0)?)
+                })
+                .map_err(|e| format!("Failed to find old currency: {}", e))?;
+            
+            if let Some(old_currency_id) = old_currency_ids.first() {
+                let current_balance = get_account_balance_by_currency_internal(db, *old_aid, *old_currency_id)
+                    .unwrap_or(0.0);
+                let new_balance = current_balance + old_amount;
+                update_account_currency_balance_internal(db, *old_aid, *old_currency_id, new_balance)?;
+                
+                let new_account_balance = calculate_account_balance_internal(db, *old_aid)?;
+                let update_balance_sql = "UPDATE accounts SET current_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+                db.execute(update_balance_sql, (new_account_balance, old_aid))
+                    .map_err(|e| format!("Failed to update account balance: {}", e))?;
+            }
+        }
+    }
+
+    // If account_id is provided, withdraw the expense amount from the account
+    if let Some(aid) = account_id {
+        // Get currency_id from currency name
+        let currency_sql = "SELECT id FROM currencies WHERE name = ? LIMIT 1";
+        let currency_ids = db
+            .query(currency_sql, one_param(currency.as_str()), |row| {
+                Ok(row_get::<i64>(row, 0)?)
+            })
+            .map_err(|e| format!("Failed to find currency: {}", e))?;
+        
+        if let Some(currency_id) = currency_ids.first() {
+            // Check if account has sufficient balance
+            let current_balance = get_account_balance_by_currency_internal(db, aid, *currency_id)
+                .unwrap_or(0.0);
+            
+            if current_balance < amount {
+                return Err(format!("Insufficient balance in account. Available: {}, Required: {}", current_balance, amount));
+            }
+            
+            // Create account transaction record for this expense (withdrawal)
+            let expense_notes = description.as_ref().map(|_s| format!("Expense: {}", description.as_ref().unwrap_or(&"".to_string())));
+            let expense_notes_str: Option<&str> = expense_notes.as_ref().map(|s| s.as_str());
+            let is_full_int = 0i64;
+            
+            let insert_transaction_sql = "INSERT INTO account_transactions (account_id, transaction_type, amount, currency, rate, total, transaction_date, is_full, notes) VALUES (?, 'withdraw', ?, ?, ?, ?, ?, ?, ?)";
+            db.execute(insert_transaction_sql, (
+                &aid,
+                &amount,
+                &currency,
+                &rate,
+                &total,
+                &date,
+                &is_full_int,
+                &expense_notes_str,
+            ))
+            .map_err(|e| format!("Failed to create account transaction: {}", e))?;
+            
+            // Subtract the expense amount from the balance
+            let new_balance = current_balance - amount;
+            
+            // Update account currency balance
+            update_account_currency_balance_internal(db, aid, *currency_id, new_balance)?;
+            
+            // Update account's current_balance
+            let new_account_balance = calculate_account_balance_internal(db, aid)?;
+            let update_balance_sql = "UPDATE accounts SET current_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+            db.execute(update_balance_sql, (new_account_balance, aid))
+                .map_err(|e| format!("Failed to update account balance: {}", e))?;
+        }
+    }
+
     // Update expense
-    let update_sql = "UPDATE expenses SET expense_type_id = ?, amount = ?, currency = ?, rate = ?, total = ?, date = ?, bill_no = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+    let update_sql = "UPDATE expenses SET expense_type_id = ?, account_id = ?, amount = ?, currency = ?, rate = ?, total = ?, date = ?, bill_no = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
     db.execute(update_sql, (
         &expense_type_id,
+        &account_id,
         &amount,
         &currency,
         &rate,
@@ -5410,21 +5556,22 @@ fn update_expense(
         .map_err(|e| format!("Failed to update expense: {}", e))?;
 
     // Get the updated expense
-    let expense_sql = "SELECT id, expense_type_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses WHERE id = ?";
+    let expense_sql = "SELECT id, expense_type_id, account_id, amount, currency, rate, total, date, bill_no, description, created_at, updated_at FROM expenses WHERE id = ?";
     let expenses = db
         .query(expense_sql, one_param(id), |row| {
             Ok(Expense {
                 id: row_get(row, 0)?,
                 expense_type_id: row_get(row, 1)?,
-                amount: row_get(row, 2)?,
-                currency: row_get(row, 3)?,
-                rate: row_get(row, 4)?,
-                total: row_get(row, 5)?,
-                date: row_get(row, 6)?,
-                bill_no: row_get(row, 7)?,
-                description: row_get(row, 8)?,
-                created_at: row_get_string_or_datetime(row, 9)?,
-                updated_at: row_get_string_or_datetime(row, 10)?,
+                account_id: row_get(row, 2)?,
+                amount: row_get(row, 3)?,
+                currency: row_get(row, 4)?,
+                rate: row_get(row, 5)?,
+                total: row_get(row, 6)?,
+                date: row_get(row, 7)?,
+                bill_no: row_get(row, 8)?,
+                description: row_get(row, 9)?,
+                created_at: row_get_string_or_datetime(row, 10)?,
+                updated_at: row_get_string_or_datetime(row, 11)?,
             })
         })
         .map_err(|e| format!("Failed to fetch expense: {}", e))?;
