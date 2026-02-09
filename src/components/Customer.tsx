@@ -16,6 +16,7 @@ import {
   deleteSalePayment,
   type SalePayment,
 } from "../utils/sales";
+import { getAccounts, type Account } from "../utils/account";
 import { formatPersianDate, getCurrentPersianDate, persianToGeorgian } from "../utils/date";
 import PersianDatePicker from "./PersianDatePicker";
 import { isDatabaseOpen, openDatabase } from "../utils/db";
@@ -100,6 +101,7 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSales, setCustomerSales] = useState<Sale[]>([]);
   const [salePaymentsMap, setSalePaymentsMap] = useState<Record<number, SalePayment[]>>({});
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState({
     full_name: "",
@@ -109,6 +111,7 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
     notes: "",
   });
   const [paymentFormData, setPaymentFormData] = useState({
+    account_id: "",
     amount: "",
     date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
   });
@@ -297,10 +300,14 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
     
     try {
       setLoading(true);
-      // Load all sales for this customer
-      const allSales = await getSales(1, 10000, "", "date", "desc");
-      const customerSalesList = allSales.items.filter(s => s.customer_id === customer.id);
+      // Load all sales for this customer and accounts
+      const [allSalesResponse, accountsData] = await Promise.all([
+        getSales(1, 10000, "", "date", "desc"),
+        getAccounts(),
+      ]);
+      const customerSalesList = allSalesResponse.items.filter(s => s.customer_id === customer.id);
       setCustomerSales(customerSalesList);
+      setAccounts(accountsData);
 
       // Load payments for each sale
       const paymentsMap: Record<number, SalePayment[]> = {};
@@ -343,6 +350,7 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
   const handleOpenPaymentModal = (sale: Sale) => {
     setSelectedSaleForPayment(sale);
     setPaymentFormData({
+      account_id: "",
       amount: "",
       date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
     });
@@ -353,6 +361,7 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
     setIsPaymentModalOpen(false);
     setSelectedSaleForPayment(null);
     setPaymentFormData({
+      account_id: "",
       amount: "",
       date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
     });
@@ -370,9 +379,10 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
     try {
       setLoading(true);
       const amount = parseFloat(paymentFormData.amount);
+      const account_id = paymentFormData.account_id ? parseInt(paymentFormData.account_id) : null;
       await createSalePayment(
         selectedSaleForPayment.id,
-        null, // account_id (optional)
+        account_id,
         selectedSaleForPayment.currency_id, // currency_id
         selectedSaleForPayment.exchange_rate || 1, // exchange_rate
         amount,
@@ -1084,6 +1094,24 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
                       placeholder="مبلغ"
                       dir="ltr"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      حساب
+                    </label>
+                    <select
+                      value={paymentFormData.account_id}
+                      onChange={(e) => setPaymentFormData({ ...paymentFormData, account_id: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                      dir="rtl"
+                    >
+                      <option value="">انتخاب حساب (اختیاری)</option>
+                      {accounts.filter(acc => acc.is_active).map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">

@@ -10,6 +10,7 @@ import {
     type SalePayment,
 } from "../utils/sales";
 import { getCustomers, type Customer } from "../utils/customer";
+import { getAccounts, type Account } from "../utils/account";
 import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import PersianDatePicker from "./PersianDatePicker";
@@ -64,11 +65,13 @@ export default function SalesPaymentManagement({ onBack }: SalesPaymentManagemen
     const [payments, setPayments] = useState<SalePayment[]>([]);
     const [sales, setSales] = useState<Sale[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [salePaymentsMap, setSalePaymentsMap] = useState<Record<number, SalePayment[]>>({});
     const [loading, setLoading] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [formData, setFormData] = useState({
         sale_id: "",
+        account_id: "",
         amount: "",
         date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
     });
@@ -96,13 +99,15 @@ export default function SalesPaymentManagement({ onBack }: SalesPaymentManagemen
             }
 
             // Get all sales and payments
-            const [salesResponse, customersData] = await Promise.all([
+            const [salesResponse, customersData, accountsData] = await Promise.all([
                 getSales(1, 10000, search, sortBy, sortOrder),
                 getCustomers(1, 10000),
+                getAccounts(),
             ]);
 
             setSales(salesResponse.items);
             setCustomers(customersData.items);
+            setAccounts(accountsData);
 
             // Collect all payments from all sales
             const allPayments: SalePayment[] = [];
@@ -140,12 +145,14 @@ export default function SalesPaymentManagement({ onBack }: SalesPaymentManagemen
         if (payment) {
             setFormData({
                 sale_id: payment.sale_id.toString(),
+                account_id: payment.account_id?.toString() || "",
                 amount: payment.amount.toString(),
                 date: payment.date,
             });
         } else {
             setFormData({
                 sale_id: "",
+                account_id: "",
                 amount: "",
                 date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
             });
@@ -157,6 +164,7 @@ export default function SalesPaymentManagement({ onBack }: SalesPaymentManagemen
         setIsModalOpen(false);
         setFormData({
             sale_id: "",
+            account_id: "",
             amount: "",
             date: persianToGeorgian(getCurrentPersianDate()) || new Date().toISOString().split('T')[0],
         });
@@ -182,13 +190,14 @@ export default function SalesPaymentManagement({ onBack }: SalesPaymentManagemen
 
         const amount = parseFloat(formData.amount);
         const sale_id = parseInt(formData.sale_id);
+        const account_id = formData.account_id ? parseInt(formData.account_id) : null;
         const sale = sales.find(s => s.id === sale_id);
 
         try {
             setLoading(true);
             await createSalePayment(
                 sale_id,
-                null, // account_id (optional)
+                account_id,
                 sale?.currency_id || null, // currency_id
                 sale?.exchange_rate || 1, // exchange_rate
                 amount,
@@ -399,6 +408,24 @@ export default function SalesPaymentManagement({ onBack }: SalesPaymentManagemen
                                                     </option>
                                                 );
                                             })}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            حساب
+                                        </label>
+                                        <select
+                                            value={formData.account_id}
+                                            onChange={(e) => setFormData({ ...formData, account_id: e.target.value })}
+                                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                                            dir="rtl"
+                                        >
+                                            <option value="">انتخاب حساب (اختیاری)</option>
+                                            {accounts.filter(acc => acc.is_active).map((account) => (
+                                                <option key={account.id} value={account.id}>
+                                                    {account.name}
+                                                </option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div>

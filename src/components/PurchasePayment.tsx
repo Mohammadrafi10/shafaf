@@ -13,6 +13,7 @@ import {
 import { getPurchases, type Purchase } from "../utils/purchase";
 import { getCurrencies, type Currency } from "../utils/currency";
 import { getSuppliers, type Supplier } from "../utils/supplier";
+import { getAccounts, type Account } from "../utils/account";
 import { isDatabaseOpen, openDatabase } from "../utils/db";
 import Footer from "./Footer";
 import PersianDatePicker from "./PersianDatePicker";
@@ -76,12 +77,14 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
     const [purchases, setPurchases] = useState<Purchase[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [currencies, setCurrencies] = useState<Currency[]>([]);
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [purchasePaymentsMap, setPurchasePaymentsMap] = useState<Record<number, PurchasePayment[]>>({});
     const [loading, setLoading] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPayment, setEditingPayment] = useState<PurchasePayment | null>(null);
     const [formData, setFormData] = useState({
         purchase_id: "",
+        account_id: "",
         amount: "",
         currency: "",
         rate: "1",
@@ -118,11 +121,12 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
                 console.log("Table initialization:", err);
             }
 
-            const [paymentsResponse, purchasesResponse, suppliersResponse, currenciesData] = await Promise.all([
+            const [paymentsResponse, purchasesResponse, suppliersResponse, currenciesData, accountsData] = await Promise.all([
                 getPurchasePayments(page, perPage, search, sortBy, sortOrder),
                 getPurchases(1, 10000), // Get all purchases
                 getSuppliers(1, 10000), // Get all suppliers
                 getCurrencies(),
+                getAccounts(),
             ]);
 
             setPayments(paymentsResponse.items);
@@ -130,6 +134,7 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
             setPurchases(purchasesResponse.items);
             setSuppliers(suppliersResponse.items);
             setCurrencies(currenciesData);
+            setAccounts(accountsData);
 
             // Load all payments grouped by purchase to calculate remaining amounts
             const paymentsMap: Record<number, PurchasePayment[]> = {};
@@ -168,6 +173,7 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
             setEditingPayment(payment);
             setFormData({
                 purchase_id: payment.purchase_id.toString(),
+                account_id: payment.account_id?.toString() || "",
                 amount: payment.amount.toString(),
                 currency: payment.currency,
                 rate: payment.rate.toString(),
@@ -179,6 +185,7 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
             setEditingPayment(null);
             setFormData({
                 purchase_id: "",
+                account_id: "",
                 amount: "",
                 currency: currencies[0]?.name || "",
                 rate: "1",
@@ -195,6 +202,7 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
         setEditingPayment(null);
         setFormData({
             purchase_id: "",
+            account_id: "",
             amount: "",
             currency: "",
             rate: "1",
@@ -230,6 +238,7 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
         const amount = parseFloat(formData.amount);
         const rate = parseFloat(formData.rate) || 1;
         const purchase_id = parseInt(formData.purchase_id);
+        const account_id = formData.account_id ? parseInt(formData.account_id) : null;
 
         try {
             setLoading(true);
@@ -246,7 +255,7 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
             } else {
                 await createPurchasePayment(
                     purchase_id,
-                    null, // account_id (optional)
+                    account_id,
                     amount,
                     formData.currency,
                     rate,
@@ -492,6 +501,24 @@ export default function PurchasePaymentManagement({ onBack }: PurchasePaymentMan
                                                     </option>
                                                 );
                                             })}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                                            حساب
+                                        </label>
+                                        <select
+                                            value={formData.account_id}
+                                            onChange={(e) => setFormData({ ...formData, account_id: e.target.value })}
+                                            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                                            dir="rtl"
+                                        >
+                                            <option value="">انتخاب حساب (اختیاری)</option>
+                                            {accounts.filter(acc => acc.is_active).map((account) => (
+                                                <option key={account.id} value={account.id}>
+                                                    {account.name}
+                                                </option>
+                                            ))}
                                         </select>
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

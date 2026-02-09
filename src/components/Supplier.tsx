@@ -18,6 +18,7 @@ import {
   type PurchasePayment,
 } from "../utils/purchase_payment";
 import { getCurrencies, type Currency } from "../utils/currency";
+import { getAccounts, type Account } from "../utils/account";
 import { formatPersianDate, getCurrentPersianDate, persianToGeorgian } from "../utils/date";
 import PersianDatePicker from "./PersianDatePicker";
 import { isDatabaseOpen, openDatabase } from "../utils/db";
@@ -107,9 +108,11 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage, on
   const [supplierPurchases, setSupplierPurchases] = useState<Purchase[]>([]);
   const [purchasePaymentsMap, setPurchasePaymentsMap] = useState<Record<number, PurchasePayment[]>>({});
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [paymentFormData, setPaymentFormData] = useState({
     purchase_id: "",
+    account_id: "",
     amount: "",
     currency: "",
     rate: "1",
@@ -221,9 +224,13 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage, on
       const supplierPurchasesList = allPurchases.items.filter(p => p.supplier_id === supplier.id);
       setSupplierPurchases(supplierPurchasesList);
 
-      // Load currencies
-      const currenciesData = await getCurrencies();
+      // Load currencies and accounts
+      const [currenciesData, accountsData] = await Promise.all([
+        getCurrencies(),
+        getAccounts(),
+      ]);
       setCurrencies(currenciesData);
+      setAccounts(accountsData);
 
       // Load payments for each purchase
       const paymentsMap: Record<number, PurchasePayment[]> = {};
@@ -267,6 +274,7 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage, on
     setSelectedPurchaseForPayment(purchase);
     setPaymentFormData({
       purchase_id: purchase.id.toString(),
+      account_id: "",
       amount: "",
       currency: currencies[0]?.name || "",
       rate: "1",
@@ -282,6 +290,7 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage, on
     setSelectedPurchaseForPayment(null);
     setPaymentFormData({
       purchase_id: "",
+      account_id: "",
       amount: "",
       currency: "",
       rate: "1",
@@ -322,9 +331,10 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage, on
       setLoading(true);
       const amount = parseFloat(paymentFormData.amount);
       const rate = parseFloat(paymentFormData.rate) || 1;
+      const account_id = paymentFormData.account_id ? parseInt(paymentFormData.account_id) : null;
       await createPurchasePayment(
         selectedPurchaseForPayment.id,
-        null, // account_id (optional)
+        account_id,
         amount,
         paymentFormData.currency,
         rate,
@@ -1122,6 +1132,24 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage, on
                     <div className="text-sm text-gray-600 dark:text-gray-400">
                       باقیمانده: {calculateRemainingAmount(selectedPurchaseForPayment).toLocaleString('en-US')} افغانی
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      حساب
+                    </label>
+                    <select
+                      value={paymentFormData.account_id}
+                      onChange={(e) => setPaymentFormData({ ...paymentFormData, account_id: e.target.value })}
+                      className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 transition-all duration-200"
+                      dir="rtl"
+                    >
+                      <option value="">انتخاب حساب (اختیاری)</option>
+                      {accounts.filter(acc => acc.is_active).map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
