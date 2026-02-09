@@ -48,6 +48,7 @@ const translations = {
   totalPaid: "مجموع پرداخت شده",
   totalRemaining: "مجموع باقیمانده",
   viewBalance: "مشاهده بیلانس",
+  viewDetailPage: "صفحه تمویل کننده",
   balance: "بیلانس",
   purchase: "خریداری",
   purchaseDate: "تاریخ خریداری",
@@ -93,9 +94,10 @@ const translations = {
 interface SupplierManagementProps {
   onBack?: () => void;
   onNavigateToBalancePage?: () => void;
+  onNavigateToDetail?: (supplierId: number) => void;
 }
 
-export default function SupplierManagement({ onBack, onNavigateToBalancePage }: SupplierManagementProps) {
+export default function SupplierManagement({ onBack, onNavigateToBalancePage, onNavigateToDetail }: SupplierManagementProps) {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierBalances, setSupplierBalances] = useState<Record<number, { totalPurchases: number; totalPaid: number; totalRemaining: number }>>({});
   const [loading, setLoading] = useState(false);
@@ -600,6 +602,19 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage }: 
             loading={loading}
             actions={(supplier) => (
               <div className="flex items-center gap-2">
+                {onNavigateToDetail && (
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => onNavigateToDetail(supplier.id)}
+                    className="p-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors"
+                    title={translations.viewDetailPage}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </motion.button>
+                )}
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
@@ -664,6 +679,9 @@ export default function SupplierManagement({ onBack, onNavigateToBalancePage }: 
                     </div>
                   )}
                   <div className="flex items-center justify-center gap-1.5 mt-auto pt-2">
+                    {onNavigateToDetail && (
+                      <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => onNavigateToDetail(s.id)} className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg" title={translations.viewDetailPage}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></motion.button>
+                    )}
                     <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleOpenBalanceModal(s)} className="p-2 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg" title={translations.viewBalance}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></motion.button>
                     <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleOpenModal(s)} className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg" title={translations.edit}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></motion.button>
                     <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => setDeleteConfirm(s.id)} className="p-2 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg" title={translations.delete}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></motion.button>

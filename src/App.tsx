@@ -23,6 +23,8 @@ import PurchaseManagement from "./components/Purchase";
 import SalesManagement from "./components/Sales";
 import UnitManagement from "./components/Unit";
 import CustomerManagement from "./components/Customer";
+import CustomerDetailPage from "./components/CustomerDetailPage";
+import SupplierDetailPage from "./components/SupplierDetailPage";
 import ExpenseManagement from "./components/Expense";
 import EmployeeManagement from "./components/Employee";
 import SalaryManagement from "./components/Salary";
@@ -53,7 +55,7 @@ interface User {
   profile_picture?: string | null;
 }
 
-type Page = "dashboard" | "currency" | "supplier" | "product" | "purchase" | "sales" | "stock" | "unit" | "customer" | "expense" | "employee" | "salary" | "deduction" | "users" | "profile" | "invoice" | "company" | "account" | "purchasePayment" | "salesPayment" | "services" | "servicePayment" | "aiReport" | "report";
+type Page = "dashboard" | "currency" | "supplier" | "product" | "purchase" | "sales" | "stock" | "unit" | "customer" | "customerDetail" | "supplierDetail" | "expense" | "employee" | "salary" | "deduction" | "users" | "profile" | "invoice" | "company" | "account" | "purchasePayment" | "salesPayment" | "services" | "servicePayment" | "aiReport" | "report";
 
 const DASHBOARD_USAGE_KEY = "shafaf_dashboard_usage";
 
@@ -128,6 +130,8 @@ function App() {
     currencyName?: string;
   } | null>(null);
   const [aiCreateUpdateOpen, setAiCreateUpdateOpen] = useState(false);
+  const [detailCustomerId, setDetailCustomerId] = useState<number | null>(null);
+  const [detailSupplierId, setDetailSupplierId] = useState<number | null>(null);
 
   // Sort dashboard features by usage (most used first)
   const sortedDashboardFeatures = useMemo(() => {
@@ -503,6 +507,23 @@ function App() {
       <SupplierManagement
         onBack={() => setCurrentPage("dashboard")}
         onNavigateToBalancePage={() => setCurrentPage("purchasePayment")}
+        onNavigateToDetail={(id) => {
+          setDetailSupplierId(id);
+          setCurrentPage("supplierDetail");
+        }}
+      />
+    );
+  }
+
+  // Show supplier detail page if selected
+  if (currentPage === "supplierDetail" && detailSupplierId !== null) {
+    return (
+      <SupplierDetailPage
+        supplierId={detailSupplierId}
+        onBack={() => {
+          setCurrentPage("supplier");
+          setDetailSupplierId(null);
+        }}
       />
     );
   }
@@ -546,6 +567,23 @@ function App() {
       <CustomerManagement
         onBack={() => setCurrentPage("dashboard")}
         onNavigateToBalancePage={() => setCurrentPage("salesPayment")}
+        onNavigateToDetail={(id) => {
+          setDetailCustomerId(id);
+          setCurrentPage("customerDetail");
+        }}
+      />
+    );
+  }
+
+  // Show customer detail page if selected
+  if (currentPage === "customerDetail" && detailCustomerId !== null) {
+    return (
+      <CustomerDetailPage
+        customerId={detailCustomerId}
+        onBack={() => {
+          setCurrentPage("customer");
+          setDetailCustomerId(null);
+        }}
       />
     );
   }
