@@ -4,7 +4,7 @@ import { SaleWithItems, SalePayment } from "../utils/sales";
 import { Customer } from "../utils/customer";
 import { Product } from "../utils/product";
 import { Unit } from "../utils/unit";
-import { CompanySettings } from "../utils/company";
+import { CompanySettings, getCompanySettings } from "../utils/company";
 import { georgianToPersian } from "../utils/date";
 import * as QRCode from "qrcode";
 import {
@@ -43,6 +43,19 @@ export default function SaleInvoice({
     const [printerPort, setPrinterPort] = useState("9100");
     const [savePrinterForNextTime, setSavePrinterForNextTime] = useState(true);
     const [thermalPrinting, setThermalPrinting] = useState(false);
+
+    // Resolve company settings: use prop when present, otherwise fetch so invoice always shows logo & details
+    const [fetchedSettings, setFetchedSettings] = useState<CompanySettings | null>(null);
+    const company = companySettings ?? fetchedSettings;
+    useEffect(() => {
+        if (companySettings?.name != null || companySettings?.logo != null) {
+            setFetchedSettings(null);
+            return;
+        }
+        getCompanySettings()
+            .then(setFetchedSettings)
+            .catch((err) => console.error("Failed to load company settings for invoice:", err));
+    }, [companySettings?.name, companySettings?.logo]);
 
     // Generate QR code on mount
     useEffect(() => {
@@ -93,7 +106,7 @@ export default function SaleInvoice({
             line_total: si.total,
         }));
         return {
-            company_name: companySettings?.name ?? null,
+            company_name: company?.name ?? null,
             sale_id: saleData.sale.id,
             sale_date: saleData.sale.date,
             total_amount: saleData.sale.total_amount,
@@ -645,17 +658,17 @@ export default function SaleInvoice({
                             <div className="company-header">
                                 <div className="flex gap-6 items-center">
                                     <div className="company-logo-container">
-                                        {companySettings?.logo ? (
-                                            <img src={companySettings.logo} alt="Logo" className="company-logo-img" />
+                                        {company?.logo ? (
+                                            <img src={company.logo} alt="Logo" className="company-logo-img" />
                                         ) : (
                                             <div className="text-blue-600 font-bold text-3xl">S</div>
                                         )}
                                     </div>
                                     <div className="company-info-text">
                                         <div className="invoice-title-badge">فاکتور فروش رسمی</div>
-                                        <h1>{companySettings?.name || "نام شرکت شما"}</h1>
+                                        <h1>{company?.name || "نام شرکت شما"}</h1>
                                         <div className="company-info-subtitle">
-                                            {companySettings?.phone && <span>{companySettings.phone} 📞</span>}
+                                            {company?.phone && <span>{company.phone} 📞</span>}
                                         </div>
                                     </div>
                                 </div>
@@ -690,9 +703,9 @@ export default function SaleInvoice({
                                 <div className="info-card">
                                     <h3>فروشنده (شرکت شما)</h3>
                                     <div className="info-card-content">
-                                        <div className="info-main-text">{companySettings?.name || "شرکت مرکزی"}</div>
+                                        <div className="info-main-text">{company?.name || "شرکت مرکزی"}</div>
                                         <div className="info-sub-text">
-                                            {companySettings?.address || "آدرس شرکت در تنظیمات ثبت نشده است."}
+                                            {company?.address || "آدرس شرکت در تنظیمات ثبت نشده است."}
                                         </div>
                                     </div>
                                 </div>
