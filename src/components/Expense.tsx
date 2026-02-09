@@ -528,6 +528,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                                         <div className="flex justify-between items-center mb-2">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">
                                                 {translations.expenseType}
+                                                <span className="text-red-500 mr-1">*</span>
                                             </label>
                                             <motion.button
                                                 type="button"
@@ -561,6 +562,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                                         <div>
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                                 {translations.amount}
+                                                <span className="text-red-500 mr-1">*</span>
                                             </label>
                                             <input
                                                 type="number"
@@ -576,6 +578,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                                         <div>
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                                 {translations.currency}
+                                                <span className="text-red-500 mr-1">*</span>
                                             </label>
                                             <select
                                                 value={formData.currency}
@@ -597,6 +600,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                                         <div>
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                                 {translations.rate}
+                                                <span className="text-red-500 mr-1">*</span>
                                             </label>
                                             <input
                                                 type="number"
@@ -625,6 +629,7 @@ export default function ExpenseManagement({ onBack }: ExpenseManagementProps) {
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                                             {translations.date}
+                                            <span className="text-red-500 mr-1">*</span>
                                         </label>
                                         <PersianDatePicker
                                             value={formData.date}
