@@ -15,41 +15,14 @@ val tauriProperties = Properties().apply {
 
 android {
     compileSdk = 36
-    namespace = "com.sulaiman.shafaf"
+    namespace = "com.galaxytechnology.shafaf"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.sulaiman.shafaf"
+        applicationId = "com.galaxytechnology.shafaf"
         minSdk = 24
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
-    }
-    signingConfigs {
-        create("release") {
-            val keystorePropertiesFile = rootProject.file("keystore.properties")
-            if (keystorePropertiesFile.exists()) {
-                val keystoreProperties = Properties()
-                keystoreProperties.load(keystorePropertiesFile.inputStream())
-                
-                storeFile = file(keystoreProperties["storeFile"] as String)
-                storePassword = keystoreProperties["storePassword"] as String
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-            } else {
-                // Fallback to environment variables or default keystore
-                val keystorePath = System.getenv("KEYSTORE_PATH") ?: "../shafaf-release.keystore"
-                val keystorePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-                val keyAliasName = System.getenv("KEY_ALIAS") ?: "shafaf"
-                val keyPassword = System.getenv("KEY_PASSWORD") ?: keystorePassword
-                
-                if (file(keystorePath).exists() && keystorePassword.isNotEmpty()) {
-                    storeFile = file(keystorePath)
-                    storePassword = keystorePassword
-                    keyAlias = keyAliasName
-                    this.keyPassword = keyPassword
-                }
-            }
-        }
     }
     buildTypes {
         getByName("debug") {
@@ -65,12 +38,6 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
-            // Use release keystore when available; otherwise use debug (e.g. in CI without secrets)
-            signingConfig = if (signingConfigs.getByName("release").storeFile != null) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))

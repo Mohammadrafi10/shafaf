@@ -1,4 +1,4 @@
-package com.sulaiman.shafaf
+package com.galaxytechnology.shafaf
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

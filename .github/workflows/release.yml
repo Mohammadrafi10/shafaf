@@ -238,85 +238,85 @@ jobs:
       - name: Release link
         run: echo "::notice title=Release::https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
 
-  # build-android:
-  #   name: Build Android
-  #   runs-on: ubuntu-latest
-  #   needs: [build-windows]
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v4
+  build-android:
+    name: Build Android
+    runs-on: ubuntu-latest
+    needs: [build-windows]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  #     - name: Setup Node.js
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: '20'
-  #         cache: 'npm'
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-  #     - name: Setup Java
-  #       uses: actions/setup-java@v4
-  #       with:
-  #         distribution: 'temurin'
-  #         java-version: '17'
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-  #     - name: Setup Android SDK
-  #       uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-  #     - name: Install Rust
-  #       uses: dtolnay/rust-toolchain@stable
-  #       with:
-  #         toolchain: stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
-  #     - name: Cache Rust dependencies
-  #       uses: actions/cache@v4
-  #       with:
-  #         path: |
-  #           ~/.cargo/bin/
-  #           ~/.cargo/registry/index/
-  #           ~/.cargo/registry/cache/
-  #           ~/.cargo/git/db/
-  #           src-tauri/target/
-  #         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            src-tauri/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-  #     - name: Install Rust Android targets
-  #       run: |
-  #         rustup target add aarch64-linux-android \
-  #                           armv7-linux-androideabi \
-  #                           i686-linux-android \
-  #                           x86_64-linux-android
+      - name: Install Rust Android targets
+        run: |
+          rustup target add aarch64-linux-android \
+                            armv7-linux-androideabi \
+                            i686-linux-android \
+                            x86_64-linux-android
 
-  #     - name: Install cargo-ndk
-  #       run: cargo install cargo-ndk --locked
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
 
-  #     - name: Install dependencies
-  #       run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-  #     - name: Build frontend
-  #       run: npm run build
+      - name: Build frontend
+        run: npm run build
 
-  #     - name: Create CI keystore
-  #       run: |
-  #         mkdir -p src-tauri/gen/android
-  #         keytool -genkeypair -v -keystore src-tauri/gen/android/ci.keystore \
-  #           -keyalg RSA -keysize 2048 -validity 10000 -alias shafaf \
-  #           -storepass android -keypass android \
-  #           -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
+      - name: Create CI keystore
+        run: |
+          mkdir -p src-tauri/gen/android
+          keytool -genkeypair -v -keystore src-tauri/gen/android/ci.keystore \
+            -keyalg RSA -keysize 2048 -validity 10000 -alias shafaf \
+            -storepass android -keypass android \
+            -dname "CN=CI, OU=CI, O=CI, L=CI, S=CI, C=US"
 
-  #     - name: Build Tauri app for Android
-  #       run: npm run tauri android build
-  #       env:
-  #         ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-  #         ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
-  #         KEYSTORE_PATH: ${{ github.workspace }}/src-tauri/gen/android/ci.keystore
-  #         KEYSTORE_PASSWORD: android
-  #         KEY_ALIAS: shafaf
-  #         KEY_PASSWORD: android
+      - name: Build Tauri app for Android
+        run: npm run tauri android build
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+          KEYSTORE_PATH: ${{ github.workspace }}/src-tauri/gen/android/ci.keystore
+          KEYSTORE_PASSWORD: android
+          KEY_ALIAS: shafaf
+          KEY_PASSWORD: android
 
-  #     - name: Upload Android Assets
-  #       uses: softprops/action-gh-release@v1
-  #       with:
-  #         tag_name: ${{ github.ref_name }}
-  #         files: |
-  #           src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
-  #           src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab
-  #       env:
-  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Android Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+            src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
