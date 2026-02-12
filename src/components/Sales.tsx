@@ -132,6 +132,7 @@ const translations = {
     useCount: "تعداد استفاده",
     noDiscountTokens: "هیچ کد تخفیفی ثبت نشده است",
     confirmDeleteDiscountToken: "آیا از حذف این کد تخفیف اطمینان دارید؟",
+    quantityExceedsStock: "مقدار از موجودی بیشتر است",
 };
 
 interface SalesManagementProps {
@@ -773,6 +774,65 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
         return Math.round((itemsTotal + serviceItemsTotal) * 100) / 100;
     };
 
+    /** Unit ratio: amount * ratio = base units. Used when no batch (product-level stock). */
+    const getUnitRatio = (unitId: number): number => {
+        const u = units.find((x) => x.id === unitId);
+        return u != null ? (u.ratio ?? 1) : 1;
+    };
+
+    /**
+     * Get available stock for comparison and display.
+     * - Wholesale + batch: no conversion — compare item.amount directly to batch.remaining_quantity (same unit).
+     * - Retail + batch: available = batch.remaining_quantity * batch.per_unit (retail units); compare item.amount to that.
+     * - No batch: use product stock with unit ratios.
+     */
+    const getItemStock = (item: SaleItemInput): { base: number; inSaleUnit: number } | null => {
+        const batch = item.product_id && item.purchase_item_id && productBatches[item.product_id]
+            ? productBatches[item.product_id].find((b) => b.purchase_item_id === item.purchase_item_id)
+            : null;
+        if (batch) {
+            const isWholesale = item.sale_type === "wholesale";
+            if (isWholesale) {
+                // Wholesale: amount is in batch unit, no conversion
+                const inSaleUnit = batch.remaining_quantity;
+                return { base: inSaleUnit, inSaleUnit };
+            }
+            // Retail: available in retail units = remaining_quantity * per_unit (e.g. boxes * pieces per box)
+            const perUnit = batch.per_unit ?? 1;
+            const inSaleUnit = batch.remaining_quantity * perUnit;
+            return { base: inSaleUnit, inSaleUnit };
+        }
+        const product = products.find((p) => p.id === item.product_id);
+        if (product?.stock_quantity != null) {
+            const saleRatio = getUnitRatio(item.unit_id);
+            const productUnit = product.unit ? units.find((u) => u.name === product.unit) : null;
+            const productRatio = productUnit ? getUnitRatio(productUnit.id) : 1;
+            const stockBase = product.stock_quantity * productRatio;
+            const inSaleUnit = saleRatio > 0 ? stockBase / saleRatio : product.stock_quantity;
+            return { base: stockBase, inSaleUnit };
+        }
+        return null;
+    };
+
+    const itemExceedsStock = (item: SaleItemInput): boolean => {
+        const stock = getItemStock(item);
+        if (stock == null) return false;
+        const batch = item.product_id && item.purchase_item_id && productBatches[item.product_id]
+            ? productBatches[item.product_id].find((b) => b.purchase_item_id === item.purchase_item_id)
+            : null;
+        if (batch) {
+            const isWholesale = item.sale_type === "wholesale";
+            const amount = Number(item.amount);
+            if (isWholesale) {
+                return amount > batch.remaining_quantity;
+            }
+            const perUnit = batch.per_unit ?? 1;
+            return amount > batch.remaining_quantity * perUnit;
+        }
+        const amountBase = Number(item.amount) * getUnitRatio(item.unit_id);
+        return amountBase > stock.base;
+    };
+
     const calculateOrderDiscountAmount = () => {
         const subtotal = calculateSubtotal();
         const typ = formData.order_discount_type;
@@ -812,11 +872,15 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
             return;
         }
 
-        // Validate product items
+        // Validate product items (unit-aware: retail/wholesale and different units)
         for (let i = 0; i < formData.items.length; i++) {
             const item = formData.items[i];
             if (!item.product_id || !item.unit_id || item.per_price <= 0 || item.amount <= 0) {
                 toast.error(`آیتم ${i + 1} ناقص است`);
+                return;
+            }
+            if (itemExceedsStock(item)) {
+                toast.error(`${translations.quantityExceedsStock} (آیتم ${i + 1})`);
                 return;
             }
         }
@@ -1468,9 +1532,20 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                                 step="0.01"
                                                                 value={item.amount || ''}
                                                                 onChange={(e) => updateItem(index, 'amount', parseFloat(e.target.value) || 0)}
-                                                                className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-purple-500"
+                                                                className={`w-full px-3 py-2 rounded-lg border bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-purple-500 ${
+                                                                    itemExceedsStock(item) ? "border-amber-500 dark:border-amber-500 ring-1 ring-amber-500" : "border-gray-300 dark:border-gray-600"
+                                                                }`}
                                                                 dir="ltr"
                                                             />
+                                                            {(() => {
+                                                                const stock = getItemStock(item);
+                                                                const exceeds = stock != null && itemExceedsStock(item);
+                                                                return exceeds && stock ? (
+                                                                    <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400" dir="rtl">
+                                                                        {translations.quantityExceedsStock} (موجودی در این واحد: {stock.inSaleUnit.toLocaleString("en-US", { maximumFractionDigits: 2 })})
+                                                                    </p>
+                                                                ) : null;
+                                                            })()}
                                                         </div>
                                                         <div className="col-span-1">
                                                             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">

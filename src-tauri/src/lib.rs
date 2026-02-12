@@ -3193,6 +3193,7 @@ pub struct ProductBatch {
     pub wholesale_price: Option<f64>,
     pub retail_price: Option<f64>,
     pub amount: f64,
+    pub unit_id: i64,
     pub remaining_quantity: f64,
 }
 
@@ -4034,6 +4035,7 @@ fn get_product_batches(db_state: State<'_, Mutex<Option<Database>>>, product_id:
             pi.wholesale_price,
             pi.retail_price,
             pi.amount,
+            pi.unit_id,
             ROUND(((pi.amount * COALESCE(u_pi.ratio, 1)) - COALESCE(sold.sold_base, 0)) / COALESCE(u_pi.ratio, 1), 6) AS remaining_quantity
         FROM purchase_items pi
         INNER JOIN purchases p ON pi.purchase_id = p.id
@@ -4053,7 +4055,7 @@ fn get_product_batches(db_state: State<'_, Mutex<Option<Database>>>, product_id:
 
     let batches = db
         .query(sql, one_param(product_id), |row| {
-            let remaining: f64 = row_get(row, 10)?;
+            let remaining: f64 = row_get(row, 11)?;
             Ok(ProductBatch {
                 purchase_item_id: row_get(row, 0)?,
                 purchase_id: row_get(row, 1)?,
@@ -4065,6 +4067,7 @@ fn get_product_batches(db_state: State<'_, Mutex<Option<Database>>>, product_id:
                 wholesale_price: row_get(row, 7)?,
                 retail_price: row_get(row, 8)?,
                 amount: row_get(row, 9)?,
+                unit_id: row_get(row, 10)?,
                 remaining_quantity: round6(remaining),
             })
         })

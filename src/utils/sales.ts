@@ -105,6 +105,7 @@ export interface ProductBatch {
     wholesale_price?: number | null;
     retail_price?: number | null;
     amount: number;
+    unit_id: number;
     remaining_quantity: number;
 }
 
