@@ -118,7 +118,7 @@ pub fn start_embedded_mysql(app: &AppHandle, app_data_mysql_dir: PathBuf) -> Res
     std::env::set_var("MYSQL_PORT", EMBEDDED_MYSQL_PORT.to_string());
     std::env::set_var("MYSQL_USER", "root");
     std::env::set_var("MYSQL_PASSWORD", "");
-    std::env::set_var("MYSQL_DATABASE", "tauri_app");
+    std::env::set_var("MYSQL_DATABASE", "shafaf");
     Ok(EmbeddedMysqlGuard {
         child: Mutex::new(Some(child)),
     })

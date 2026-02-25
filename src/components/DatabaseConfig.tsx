@@ -22,12 +22,21 @@ const labels = {
   errorTitle: "خطا در اتصال به پایگاه داده",
 };
 
+// Defaults match embedded MariaDB (bundled with the app)
+const EMBEDDED_DEFAULTS = {
+  host: "127.0.0.1",
+  port: 3306,
+  user: "root",
+  password: "",
+  database: "shafaf",
+};
+
 export default function DatabaseConfig({ dbError, onSaveSuccess }: DatabaseConfigProps) {
-  const [host, setHost] = useState("127.0.0.1");
-  const [port, setPort] = useState(3306);
-  const [user, setUser] = useState("");
-  const [password, setPassword] = useState("");
-  const [database, setDatabase] = useState("tauri_app");
+  const [host, setHost] = useState(EMBEDDED_DEFAULTS.host);
+  const [port, setPort] = useState(EMBEDDED_DEFAULTS.port);
+  const [user, setUser] = useState(EMBEDDED_DEFAULTS.user);
+  const [password, setPassword] = useState(EMBEDDED_DEFAULTS.password);
+  const [database, setDatabase] = useState(EMBEDDED_DEFAULTS.database);
   const [loading, setLoading] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(true);
 
@@ -35,13 +44,13 @@ export default function DatabaseConfig({ dbError, onSaveSuccess }: DatabaseConfi
     const load = async () => {
       try {
         const config = await getEnvConfig();
-        setHost(config.host || "127.0.0.1");
-        setPort(config.port || 3306);
-        setUser(config.user || "");
-        setPassword(config.password || "");
-        setDatabase(config.database || "tauri_app");
+        setHost(config.host || EMBEDDED_DEFAULTS.host);
+        setPort(config.port ?? EMBEDDED_DEFAULTS.port);
+        setUser(config.user ?? EMBEDDED_DEFAULTS.user);
+        setPassword(config.password ?? EMBEDDED_DEFAULTS.password);
+        setDatabase(config.database || EMBEDDED_DEFAULTS.database);
       } catch {
-        // keep defaults
+        // keep embedded MariaDB defaults
       } finally {
         setLoadingConfig(false);
       }
@@ -191,7 +200,7 @@ export default function DatabaseConfig({ dbError, onSaveSuccess }: DatabaseConfi
                 value={database}
                 onChange={(e) => setDatabase(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="tauri_app"
+                placeholder="shafaf"
                 dir="ltr"
               />
             </div>

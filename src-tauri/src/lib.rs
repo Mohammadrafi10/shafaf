@@ -22,7 +22,7 @@ MYSQL_HOST=127.0.0.1
 MYSQL_PORT=3306
 MYSQL_USER=
 MYSQL_PASSWORD=
-MYSQL_DATABASE=tauri_app
+MYSQL_DATABASE=shafaf
 
 # Application Configuration
 APP_NAME=Finance App
@@ -144,7 +144,7 @@ fn get_env_config() -> Result<EnvConfig, String> {
         .unwrap_or(3306);
     let user = std::env::var("MYSQL_USER").unwrap_or_default();
     let password = std::env::var("MYSQL_PASSWORD").unwrap_or_default();
-    let database = std::env::var("MYSQL_DATABASE").unwrap_or_else(|_| "tauri_app".to_string());
+    let database = std::env::var("MYSQL_DATABASE").unwrap_or_else(|_| "shafaf".to_string());
     Ok(EnvConfig {
         has_env_file,
         host,
@@ -165,7 +165,7 @@ fn get_mysql_connection_string() -> Result<String, String> {
         .unwrap_or(3306);
     let user = std::env::var("MYSQL_USER").unwrap_or_default();
     let password = std::env::var("MYSQL_PASSWORD").unwrap_or_default();
-    let database = std::env::var("MYSQL_DATABASE").unwrap_or_else(|_| "tauri_app".to_string());
+    let database = std::env::var("MYSQL_DATABASE").unwrap_or_else(|_| "shafaf".to_string());
     let userinfo = if password.is_empty() {
         urlencoding::encode(&user).into_owned()
     } else {
@@ -510,7 +510,7 @@ fn run_schema_if_needed(db: &Database) -> Result<(), String> {
 fn db_create(app: AppHandle, db_name: String) -> Result<String, String> {
     let opts = get_mysql_opts()?;
     let db_to_create = if db_name.is_empty() {
-        opts.get_db_name().map(|s| s.to_string()).unwrap_or_else(|| "tauri_app".to_string())
+        opts.get_db_name().map(|s| s.to_string()).unwrap_or_else(|| "shafaf".to_string())
     } else {
         db_name
     };
@@ -8537,7 +8537,7 @@ pub fn run() {
                             if let Ok(opts) = get_mysql_opts() {
                                 let opts_no_db = OptsBuilder::from_opts(opts.clone()).db_name(None::<String>);
                                 if let Ok(mut conn) = mysql::Conn::new(Opts::from(opts_no_db)) {
-                                    let _ = conn.query_drop("CREATE DATABASE IF NOT EXISTS `tauri_app`");
+                                    let _ = conn.query_drop("CREATE DATABASE IF NOT EXISTS `shafaf`");
                                 }
                             }
                         }
