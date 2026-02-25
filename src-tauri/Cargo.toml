@@ -38,7 +38,7 @@ hex = "0.4"
 sysinfo = "0.30"
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
-tower = "0.4"
+tower = "0.5"
 tower-http = { version = "0.5", features = ["fs"] }
 escpos = "0.17"
 urlencoding = "2.1"
