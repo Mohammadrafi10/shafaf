@@ -27,7 +27,7 @@
     "active": true,
     "targets": ["nsis", "app", "dmg", "appimage"],
     "resources": [
-      "../ai.html"
+      "../ai.html","binaries/mariadb"
     ],
     "windows": {
       "certificateThumbprint": null,

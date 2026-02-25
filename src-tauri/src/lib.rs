@@ -1,6 +1,7 @@
 mod db;
 mod license;
 mod license_server;
+mod mysql_server;
 mod server;
 
 use db::Database;
@@ -152,6 +153,26 @@ fn get_env_config() -> Result<EnvConfig, String> {
         password,
         database,
     })
+}
+
+/// Returns the current MySQL connection string for the frontend (e.g. mysql://user:pass@host:port/database).
+#[tauri::command]
+fn get_mysql_connection_string() -> Result<String, String> {
+    let host = std::env::var("MYSQL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port: u16 = std::env::var("MYSQL_PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3306);
+    let user = std::env::var("MYSQL_USER").unwrap_or_default();
+    let password = std::env::var("MYSQL_PASSWORD").unwrap_or_default();
+    let database = std::env::var("MYSQL_DATABASE").unwrap_or_else(|_| "tauri_app".to_string());
+    let userinfo = if password.is_empty() {
+        urlencoding::encode(&user).into_owned()
+    } else {
+        format!("{}:{}", urlencoding::encode(&user), urlencoding::encode(&password))
+    };
+    let url = format!("mysql://{}@{}:{}/{}", userinfo, host, port, database);
+    Ok(url)
 }
 
 /// Save database configuration to .env and reload env vars so next connection uses new values.
@@ -8502,6 +8523,30 @@ pub fn run() {
         .plugin(tauri_plugin_keychain::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // Start embedded MySQL (portable MariaDB) on desktop; data in App Data
+            #[cfg(not(target_os = "android"))]
+            {
+                if let Ok(app_data_dir) = get_app_data_dir(app.handle()) {
+                    let mysql_data_dir = app_data_dir.join("mysql_data");
+                    match mysql_server::start_embedded_mysql(app.handle(), mysql_data_dir) {
+                        Ok(guard) => {
+                            app.manage(guard);
+                            println!("✅ Embedded MySQL started (data in App Data)");
+                            // Ensure default database exists (give server a moment to accept connections)
+                            std::thread::sleep(std::time::Duration::from_millis(800));
+                            if let Ok(opts) = get_mysql_opts() {
+                                let opts_no_db = OptsBuilder::from_opts(opts.clone()).db_name(None::<String>);
+                                if let Ok(mut conn) = mysql::Conn::new(Opts::from(opts_no_db)) {
+                                    let _ = conn.query_drop("CREATE DATABASE IF NOT EXISTS `tauri_app`");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("⚠️ Embedded MySQL not started: {}", e);
+                        }
+                    }
+                }
+            }
             // Start the AI server in a background thread with its own runtime
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -8530,6 +8575,7 @@ pub fn run() {
         .manage(Mutex::new(None::<Database>))
         .invoke_handler(tauri::generate_handler![
             get_env_config,
+            get_mysql_connection_string,
             save_env_config,
             db_create,
             db_open,

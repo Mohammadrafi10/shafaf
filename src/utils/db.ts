@@ -18,6 +18,15 @@ export async function getEnvConfig(): Promise<EnvConfig> {
 }
 
 /**
+ * Get the current MySQL connection string (e.g. mysql://root@127.0.0.1:3306/tauri_app).
+ * Uses the same MYSQL_* values as getEnvConfig; useful when a single URL is needed
+ * (e.g. for embedded/portable MySQL running alongside the app).
+ */
+export async function getMysqlConnectionString(): Promise<string> {
+  return await invoke<string>("get_mysql_connection_string");
+}
+
+/**
  * Save database configuration to .env and reload in the app.
  * After calling this, retry opening the database (e.g. ensureDatabase).
  */
