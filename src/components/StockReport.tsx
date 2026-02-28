@@ -224,7 +224,7 @@ export default function StockReport({ onBack }: StockReportProps) {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 relative overflow-hidden" dir="rtl">
-            <div className="relative max-w-7xl mx-auto p-6 z-10">
+            <div className="relative w-full p-6 z-10">
                 <PageHeader
                     title={translations.title}
                     onBack={onBack}

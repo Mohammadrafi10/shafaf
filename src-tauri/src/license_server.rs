@@ -58,6 +58,23 @@ fn ensure_db_and_table(conn: &mut Conn) -> Result<(), String> {
     Ok(())
 }
 
+/// Returns true if the error is likely due to network/connectivity (no internet, server down, etc.).
+/// Used to fall back to offline license check using Windows Credentials (keyring) when offline.
+pub fn is_network_error(error: &str) -> bool {
+    let lower = error.to_lowercase();
+    lower.contains("connection")
+        || lower.contains("connect")
+        || lower.contains("refused")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("network")
+        || lower.contains("unreachable")
+        || lower.contains("dns")
+        || lower.contains("resolve")
+        || lower.contains("no route")
+        || lower.contains("could not connect")
+}
+
 /// Returns true if the given expiry ISO string is in the past (license expired).
 pub fn is_expiry_past(expiry_iso: &str) -> Result<bool, String> {
     let expiry_dt: DateTime<Utc> = if let Ok(dt) = DateTime::parse_from_rfc3339(expiry_iso) {

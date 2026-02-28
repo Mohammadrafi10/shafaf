@@ -499,7 +499,7 @@ export default function CustomerManagement({ onBack, onNavigateToBalancePage, on
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6" dir="rtl">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         <PageHeader
           title={translations.title}
           onBack={onBack}

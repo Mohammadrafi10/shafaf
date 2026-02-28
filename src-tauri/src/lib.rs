@@ -1014,7 +1014,9 @@ fn check_license_key_with_server(license_key: String) -> Result<license_server::
     license_server::check_license_against_server(&license_key)
 }
 
-/// Check stored license: local expiry first (stored on this machine), then remote server. Returns { valid, reason? }.
+/// Check stored license: local expiry first (stored on this machine), then remote server.
+/// When there is no internet (server unreachable), falls back to offline check using
+/// Windows Credentials (keyring): stored key + stored expiry only.
 #[tauri::command]
 fn check_license_with_server() -> Result<license_server::LicenseCheckResult, String> {
     let key = get_license_key()?;
@@ -1037,7 +1039,40 @@ fn check_license_with_server() -> Result<license_server::LicenseCheckResult, Str
             }
         }
     }
-    license_server::check_license_against_server(&key)
+    match license_server::check_license_against_server(&key) {
+        Ok(result) => Ok(result),
+        Err(e) if license_server::is_network_error(&e) => {
+            // No internet: validate offline using Windows Credentials (keyring) only
+            let local_valid = license::validate_license_key(&key).unwrap_or(false);
+            let expiry_opt = get_license_expiry().ok().and_then(|x| x);
+            let expiry_ok = expiry_opt
+                .as_ref()
+                .and_then(|expiry_iso| license_server::is_expiry_past(expiry_iso).ok())
+                .map(|expired| !expired)
+                .unwrap_or(false);
+            if local_valid && expiry_ok {
+                Ok(license_server::LicenseCheckResult {
+                    valid: true,
+                    reason: None,
+                })
+            } else if !local_valid {
+                Ok(license_server::LicenseCheckResult {
+                    valid: false,
+                    reason: Some("invalid".to_string()),
+                })
+            } else {
+                // Valid key but expired or no cached expiry (cannot verify offline)
+                Ok(license_server::LicenseCheckResult {
+                    valid: false,
+                    reason: Some("expired".to_string()),
+                })
+            }
+        }
+        Err(_) => Ok(license_server::LicenseCheckResult {
+            valid: false,
+            reason: Some("invalid".to_string()),
+        }),
+    }
 }
 
 /// Insert the given license key into the remote MySQL license table only if it does not exist; store expiry locally when inserted.

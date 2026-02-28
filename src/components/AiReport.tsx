@@ -385,7 +385,7 @@ export default function AiReport({ onBack }: AiReportProps) {
           }
         }
       `}</style>
-      <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="w-full px-4 py-8">
         <motion.button
           onClick={onBack}
           className="no-print flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400 mb-6"

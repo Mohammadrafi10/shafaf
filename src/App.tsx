@@ -780,7 +780,7 @@ function App() {
         transition={{ duration: 0.5 }}
         className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl border-b border-purple-100 dark:border-purple-900/30 sticky top-0 z-50"
       >
-        <div className="max-w-7xl mx-auto px-6 py-4">
+        <div className="w-full px-4 py-4">
           <div className="flex justify-between items-center">
             {/* Logo & Brand */}
             <div className="flex items-center gap-4">
@@ -921,7 +921,7 @@ function App() {
         </div>
       </motion.header>
 
-      <main className="relative max-w-7xl mx-auto px-6 py-8 z-10">
+      <main className="relative w-full px-4 py-8 z-10">
       
         {/* Quick Stats */}
         <motion.div

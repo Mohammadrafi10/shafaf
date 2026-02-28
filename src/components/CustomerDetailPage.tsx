@@ -204,7 +204,7 @@ export default function CustomerDetailPage({ customerId, onBack }: CustomerDetai
 
       {/* Sticky header */}
       <header className="no-print sticky top-0 z-40 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-full px-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 py-4">
             <div className="flex items-center gap-3 min-w-0">
               <motion.button
@@ -232,7 +232,7 @@ export default function CustomerDetailPage({ customerId, onBack }: CustomerDetai
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <main className="w-full px-4 py-6 sm:py-8">
         <div className="no-print space-y-6">
           {/* Profile + Summary row */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

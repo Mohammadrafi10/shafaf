@@ -483,7 +483,7 @@ export default function ProductManagement({ onBack }: ProductManagementProps) {
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-indigo-300 dark:bg-indigo-900 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
       </div>
 
-      <div className="relative max-w-7xl mx-auto p-6 z-10">
+      <div className="relative w-full p-6 z-10">
         <PageHeader
           title={translations.title}
           onBack={onBack}

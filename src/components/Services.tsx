@@ -249,7 +249,7 @@ export default function ServicesManagement({ onBack }: ServicesManagementProps) 
             className="min-h-screen bg-gradient-to-br from-teal-50 via-cyan-50 to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-6"
             dir="rtl"
         >
-            <div className="max-w-7xl mx-auto">
+            <div className="w-full">
                 <PageHeader
                     title={translations.title}
                     onBack={onBack}
