@@ -140,7 +140,7 @@ function App() {
   const [detailSupplierId, setDetailSupplierId] = useState<number | null>(null);
 
   // Simple in-memory navigation stack for "smart back" behavior
-  const [navStack, setNavStack] = useState<Page[]>([]);
+  const [, setNavStack] = useState<Page[]>([]);
 
   // Keep dashboard features in their defined order (no auto ordering).
   const sortedDashboardFeatures = useMemo(() => DASHBOARD_FEATURES, []);
