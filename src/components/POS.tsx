@@ -550,16 +550,25 @@ export default function POS({ onBack }: POSProps) {
             return;
         }
 
-        const itemsPayload: SaleItemInput[] = cartItems.map((ci) => ({
-            product_id: ci.product.id,
-            unit_id: ci.unit?.id ?? (getUnitByName(ci.product.unit)?.id ?? 0),
-            per_price: ci.perPrice,
-            amount: ci.quantity,
-            purchase_item_id: ci.batch?.purchase_item_id ?? null,
-            sale_type: ci.saleType,
-            discount_type: ci.discountType,
-            discount_value: ci.discountValue,
-        }));
+        // Resolve unit IDs safely for all cart items
+        const itemsPayload: SaleItemInput[] = [];
+        for (const ci of cartItems) {
+            const resolvedUnit = ci.unit ?? getUnitByName(ci.product.unit);
+            if (!resolvedUnit) {
+                toast.error(`واحد معتبر برای محصول "${ci.product.name}" یافت نشد. لطفاً واحد پیش‌فرض را در تنظیمات اجناس بررسی کنید.`);
+                return;
+            }
+            itemsPayload.push({
+                product_id: ci.product.id,
+                unit_id: resolvedUnit.id,
+                per_price: ci.perPrice,
+                amount: ci.quantity,
+                purchase_item_id: ci.batch?.purchase_item_id ?? null,
+                sale_type: ci.saleType,
+                discount_type: ci.discountType,
+                discount_value: ci.discountValue,
+            });
+        }
 
         const servicePayload: SaleServiceItemInput[] = serviceItems.map((si) => ({
             service_id: (si.catalogId ?? 0),
