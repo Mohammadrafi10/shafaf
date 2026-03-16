@@ -33,9 +33,7 @@ DEV_MODE=true
 
 /// Returns the directory where we store .env (same layout as app data, using env vars only).
 fn get_config_dir() -> PathBuf {
-    if cfg!(target_os = "android") {
-        PathBuf::from(".")
-    } else if cfg!(windows) {
+    if cfg!(windows) {
         std::env::var("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."))
@@ -220,11 +218,7 @@ fn save_env_config(host: String, port: u16, user: String, password: String, data
 
 /// Get app data directory for backups (same layout as before, for backup files).
 fn get_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = if cfg!(target_os = "android") {
-        app.path()
-            .app_data_dir()
-            .map_err(|e| format!("Failed to get Android app data directory: {}", e))?
-    } else if cfg!(windows) {
+    let data_dir = if cfg!(windows) {
         std::env::var("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."))
@@ -8559,7 +8553,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Start embedded MySQL (portable MariaDB) on desktop; data in App Data
-            #[cfg(not(target_os = "android"))]
             {
                 if let Ok(app_data_dir) = get_app_data_dir(app.handle()) {
                     let mysql_data_dir = app_data_dir.join("mysql_data");

@@ -1,6 +1,6 @@
 # Installation
 
-This page describes how to install **شفاف (Shafaf)** on **Windows** and **Android** from GitHub Releases.
+This page describes how to install **شفاف (Shafaf)** on **Windows** from GitHub Releases.
 
 ---
 
@@ -16,27 +16,9 @@ This page describes how to install **شفاف (Shafaf)** on **Windows** and **An
 
 ---
 
-## Android
-
-1. Open [Releases](https://github.com/YOUR_ORG/tauri-app/releases) and pick the version (e.g. `v6.3.2`).
-2. Download the **APK** (for direct install).
-3. On the device:
-   - Enable **Install from unknown sources** (or **Install unknown apps** for the browser/file manager you use).
-   - Open the downloaded APK and install.
-4. Launch **شفاف** from the app drawer.
-
-**Note**: For **Google Play**, use the **AAB** (Android App Bundle) from the same release; it is not for direct installation on devices.
-
-**Built artifacts**:  
-- APK: `src-tauri/target/android/apk/release/`  
-- AAB: `src-tauri/target/android/aab/release/`
-
----
-
 ## Requirements
 
 - **Windows**: 64-bit Windows 10/11.
-- **Android**: Android 7.0 (API 24) or higher.
 
 ---
 

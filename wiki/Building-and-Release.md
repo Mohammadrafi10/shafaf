@@ -16,24 +16,6 @@ npm run tauri build
 - **NSIS installer**: `src-tauri/target/release/bundle/nsis/`  
 - Other bundles (app, dmg, appimage) depend on `tauri.conf.json` and the platform.
 
-### Android
-
-1. Ensure [Android Setup](Android-Setup) (JDK, SDK, NDK, cargo-ndk, Rust Android targets) is done.
-2. Initialize Android (if needed):
-   ```bash
-   npm run tauri android init
-   ```
-3. Build:
-   ```bash
-   npm run tauri android build
-   ```
-   - **APK**: `src-tauri/target/android/apk/release/`  
-   - **AAB**: `src-tauri/target/android/aab/release/`
-
-For signing, set `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD` (or configure in `tauri.conf.json` / `build.gradle.kts`). The CI creates a temporary keystore; see [Android Setup](Android-Setup) and `.github/workflows/release.yml`.
-
----
-
 ## GitHub Release Workflow
 
 The workflow in `.github/workflows/release.yml` runs on **version tags** `v*` (e.g. `v6.3.2`).
