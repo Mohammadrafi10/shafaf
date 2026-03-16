@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+// framer-motion imports removed; heavy animations dropped for low-spec support
 import toast from "react-hot-toast";
 import { getEnvConfig, saveEnvConfig } from "../utils/db";
 
@@ -86,18 +86,7 @@ export default function DatabaseConfig({ dbError, onSaveSuccess }: DatabaseConfi
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center p-4 relative overflow-hidden" dir="rtl">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          animate={{ scale: [1, 1.2, 1], rotate: [0, 90, 0] }}
-          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-          className="absolute -top-1/4 -right-1/4 w-96 h-96 bg-purple-300/20 dark:bg-purple-600/10 rounded-full blur-3xl"
-        />
-        <motion.div
-          animate={{ scale: [1, 1.3, 1], rotate: [0, -90, 0] }}
-          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-          className="absolute -bottom-1/4 -left-1/4 w-96 h-96 bg-blue-300/20 dark:bg-blue-600/10 rounded-full blur-3xl"
-        />
-      </div>
+      {/* Reduced background for low-spec machines (no animated blobs) */}
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

@@ -133,11 +133,13 @@ function App() {
   const [detailCustomerId, setDetailCustomerId] = useState<number | null>(null);
   const [detailSupplierId, setDetailSupplierId] = useState<number | null>(null);
 
-  // Sort dashboard features by usage (most used first)
+  // Sort dashboard features by usage (most used first).
+  // Note: dependency array is empty so order stays stable during a session
+  // and does not reshuffle immediately after each click.
   const sortedDashboardFeatures = useMemo(() => {
     const usage = getDashboardUsage();
     return [...DASHBOARD_FEATURES].sort((a, b) => (usage[b.page] || 0) - (usage[a.page] || 0));
-  }, [currentPage]);
+  }, []);
 
   // Theme state - initialize from localStorage or system preference
   const [isDark, setIsDark] = useState(() => {
@@ -767,12 +769,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 relative overflow-hidden" dir="rtl">
-      {/* Animated background elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-300 dark:bg-purple-900 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-20 animate-blob"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-blue-300 dark:bg-blue-900 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-20 animate-blob animation-delay-2000"></div>
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-80 bg-indigo-300 dark:bg-indigo-900 rounded-full mix-blend-multiply dark:mix-blend-soft-light filter blur-xl opacity-20 animate-blob animation-delay-4000"></div>
-      </div>
+      {/* Simplified background for low-spec machines (no animated blobs) */}
       {/* Header */}
       <motion.header
         initial={{ y: -100, opacity: 0 }}
