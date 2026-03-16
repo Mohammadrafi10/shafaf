@@ -321,6 +321,17 @@ export default function POS({ onBack }: POSProps) {
         return u ?? null;
     };
 
+    const getDefaultUnitForProduct = (product: Product): Unit | null => {
+        // 1) Try the unit name stored on the product (same behavior as Sales form)
+        const viaName = getUnitByName(product.unit);
+        if (viaName) return viaName;
+        // 2) Fallback to any base unit (e.g. "عدد") if available
+        const baseUnit = units.find((u) => u.is_base);
+        if (baseUnit) return baseUnit;
+        // 3) As a last resort, use the first defined unit (keeps FK valid)
+        return units.length > 0 ? units[0] : null;
+    };
+
     const getItemStockInSaleUnit = (item: PosCartItem): number | null => {
         const product = item.product;
         if (!product) return null;
@@ -369,7 +380,7 @@ export default function POS({ onBack }: POSProps) {
         const batchesForProduct = productBatches[product.id] || [];
         const defaultBatch = batchesForProduct[0] ?? null;
 
-        const unitFromProduct = getUnitByName(product.unit);
+        const unitFromProduct = getDefaultUnitForProduct(product);
         const defaultSaleType: PosSaleType = "retail";
         const perPrice =
             defaultBatch != null
@@ -550,12 +561,13 @@ export default function POS({ onBack }: POSProps) {
             return;
         }
 
-        // Resolve unit IDs safely for all cart items
         const itemsPayload: SaleItemInput[] = [];
         for (const ci of cartItems) {
-            const resolvedUnit = ci.unit ?? getUnitByName(ci.product.unit);
+            const resolvedUnit = ci.unit ?? getDefaultUnitForProduct(ci.product);
             if (!resolvedUnit) {
-                toast.error(`واحد معتبر برای محصول "${ci.product.name}" یافت نشد. لطفاً واحد پیش‌فرض را در تنظیمات اجناس بررسی کنید.`);
+                toast.error(
+                    `واحد معتبر برای محصول "${ci.product.name}" یافت نشد. لطفاً واحدها را در تنظیمات سیستم بررسی کنید.`
+                );
                 return;
             }
             itemsPayload.push({
