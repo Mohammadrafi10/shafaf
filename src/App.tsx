@@ -87,27 +87,6 @@ type Page =
 
 const DASHBOARD_USAGE_KEY = "shafaf_dashboard_usage";
 
-function getDashboardUsage(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(DASHBOARD_USAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, number>;
-    return typeof parsed === "object" && parsed !== null ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function incrementDashboardUsage(page: Page): void {
-  const usage = getDashboardUsage();
-  usage[page] = (usage[page] || 0) + 1;
-  try {
-    localStorage.setItem(DASHBOARD_USAGE_KEY, JSON.stringify(usage));
-  } catch {
-    // ignore
-  }
-}
-
 const DASHBOARD_FEATURES: Array<{
   title: string;
   description: string;
@@ -162,13 +141,11 @@ function App() {
   const [detailCustomerId, setDetailCustomerId] = useState<number | null>(null);
   const [detailSupplierId, setDetailSupplierId] = useState<number | null>(null);
 
-  // Sort dashboard features by usage (most used first).
-  // Note: dependency array is empty so order stays stable during a session
-  // and does not reshuffle immediately after each click.
-  const sortedDashboardFeatures = useMemo(() => {
-    const usage = getDashboardUsage();
-    return [...DASHBOARD_FEATURES].sort((a, b) => (usage[b.page] || 0) - (usage[a.page] || 0));
-  }, []);
+  // Simple in-memory navigation stack for "smart back" behavior
+  const [navStack, setNavStack] = useState<Page[]>([]);
+
+  // Keep dashboard features in their defined order (no auto ordering).
+  const sortedDashboardFeatures = useMemo(() => DASHBOARD_FEATURES, []);
 
   // Theme state - initialize from localStorage or system preference
   const [isDark, setIsDark] = useState(() => {
@@ -270,7 +247,7 @@ function App() {
         
         // Navigate to sales page if not already there
         if (currentPage !== "sales") {
-          setCurrentPage("sales");
+          navigateTo("sales");
           // Wait a bit for the component to mount, then trigger modal
           setTimeout(() => {
             const openModal = (window as any).__openSalesModal;
@@ -564,12 +541,30 @@ function App() {
   const handleLogout = () => {
     setUser(null);
     setCurrentPage("dashboard");
+    setNavStack([]);
+  };
+
+  const navigateTo = (next: Page) => {
+    setNavStack((prev) => [...prev, currentPage]);
+    setCurrentPage(next);
+  };
+
+  const handleBack = (fallback: Page) => {
+    setNavStack((prev) => {
+      if (prev.length === 0) {
+        setCurrentPage(fallback);
+        return prev;
+      }
+      const last = prev[prev.length - 1];
+      setCurrentPage(last);
+      return prev.slice(0, -1);
+    });
   };
 
   // Show currency page if selected
   if (currentPage === "currency") {
     return (
-      <CurrencyManagement onBack={() => setCurrentPage("dashboard")} />
+      <CurrencyManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
@@ -577,11 +572,11 @@ function App() {
   if (currentPage === "supplier") {
     return (
       <SupplierManagement
-        onBack={() => setCurrentPage("dashboard")}
-        onNavigateToBalancePage={() => setCurrentPage("purchasePayment")}
+        onBack={() => handleBack("dashboard")}
+        onNavigateToBalancePage={() => navigateTo("purchasePayment")}
         onNavigateToDetail={(id) => {
           setDetailSupplierId(id);
-          setCurrentPage("supplierDetail");
+          navigateTo("supplierDetail");
         }}
       />
     );
@@ -593,7 +588,7 @@ function App() {
       <SupplierDetailPage
         supplierId={detailSupplierId}
         onBack={() => {
-          setCurrentPage("supplier");
+          handleBack("supplier");
           setDetailSupplierId(null);
         }}
       />
@@ -603,13 +598,13 @@ function App() {
   // Show unit page if selected
   if (currentPage === "unit") {
     return (
-      <UnitManagement onBack={() => setCurrentPage("dashboard")} />
+      <UnitManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
   if (currentPage === "purchase") {
     return (
-      <PurchaseManagement onBack={() => setCurrentPage("dashboard")} />
+      <PurchaseManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
@@ -617,10 +612,10 @@ function App() {
   if (currentPage === "sales") {
     return (
       <SalesManagement 
-        onBack={() => setCurrentPage("dashboard")}
+        onBack={() => handleBack("dashboard")}
         onOpenInvoice={(data) => {
           setInvoiceData(data);
-          setCurrentPage("invoice");
+          navigateTo("invoice");
         }}
       />
     );
@@ -629,7 +624,7 @@ function App() {
   if (currentPage === "pos") {
     return (
       <POS
-        onBack={() => setCurrentPage("dashboard")}
+        onBack={() => handleBack("dashboard")}
       />
     );
   }
@@ -637,7 +632,7 @@ function App() {
   // Show product page if selected
   if (currentPage === "product") {
     return (
-      <ProductManagement onBack={() => setCurrentPage("dashboard")} />
+      <ProductManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
@@ -645,11 +640,11 @@ function App() {
   if (currentPage === "customer") {
     return (
       <CustomerManagement
-        onBack={() => setCurrentPage("dashboard")}
-        onNavigateToBalancePage={() => setCurrentPage("salesPayment")}
+        onBack={() => handleBack("dashboard")}
+        onNavigateToBalancePage={() => navigateTo("salesPayment")}
         onNavigateToDetail={(id) => {
           setDetailCustomerId(id);
-          setCurrentPage("customerDetail");
+          navigateTo("customerDetail");
         }}
       />
     );
@@ -661,7 +656,7 @@ function App() {
       <CustomerDetailPage
         customerId={detailCustomerId}
         onBack={() => {
-          setCurrentPage("customer");
+          handleBack("customer");
           setDetailCustomerId(null);
         }}
       />
@@ -671,7 +666,7 @@ function App() {
   // Show expense page if selected
   if (currentPage === "expense") {
     return (
-      <ExpenseManagement onBack={() => setCurrentPage("dashboard")} />
+      <ExpenseManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
@@ -679,8 +674,8 @@ function App() {
   if (currentPage === "employee") {
     return (
       <EmployeeManagement 
-        onBack={() => setCurrentPage("dashboard")}
-        onNavigateToSalary={() => setCurrentPage("salary")}
+        onBack={() => handleBack("dashboard")}
+        onNavigateToSalary={() => navigateTo("salary")}
       />
     );
   }
@@ -689,8 +684,8 @@ function App() {
   if (currentPage === "salary") {
     return (
       <SalaryManagement 
-        onBack={() => setCurrentPage("dashboard")}
-        onNavigateToDeduction={() => setCurrentPage("deduction")}
+        onBack={() => handleBack("dashboard")}
+        onNavigateToDeduction={() => navigateTo("deduction")}
       />
     );
   }
@@ -698,7 +693,7 @@ function App() {
   // Show deduction page if selected
   if (currentPage === "deduction") {
     return (
-      <DeductionManagement onBack={() => setCurrentPage("dashboard")} />
+      <DeductionManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
@@ -706,7 +701,7 @@ function App() {
   if (currentPage === "users") {
     return (
       <UserManagement
-        onBack={() => setCurrentPage("dashboard")}
+        onBack={() => handleBack("dashboard")}
         currentUser={user}
       />
     );
@@ -717,7 +712,7 @@ function App() {
     return (
       <ProfileEdit
         userId={user.id}
-        onBack={() => setCurrentPage("dashboard")}
+        onBack={() => handleBack("dashboard")}
         onProfileUpdate={(updatedUser) => {
           setUser({
             id: updatedUser.id,
@@ -741,7 +736,7 @@ function App() {
         payments={invoiceData.payments}
         companySettings={companySettings}
         currencyName={invoiceData.currencyName}
-        onClose={() => setCurrentPage("sales")}
+        onClose={() => handleBack("sales")}
       />
     );
   }
@@ -750,8 +745,8 @@ function App() {
   if (currentPage === "company") {
     return (
       <CompanySettings
-        onBack={() => setCurrentPage("dashboard")}
-        onNavigate={(page) => setCurrentPage(page)}
+        onBack={() => handleBack("dashboard")}
+        onNavigate={(page) => navigateTo(page)}
       />
     );
   }
@@ -759,48 +754,48 @@ function App() {
   // Show account page if selected
   if (currentPage === "account") {
     return (
-      <AccountManagement onBack={() => setCurrentPage("dashboard")} />
+      <AccountManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
   // Show purchase payment page if selected
   if (currentPage === "purchasePayment") {
     return (
-      <PurchasePaymentManagement onBack={() => setCurrentPage("dashboard")} />
+      <PurchasePaymentManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
   // Show sales payment page if selected
   if (currentPage === "salesPayment") {
     return (
-      <SalesPaymentManagement onBack={() => setCurrentPage("dashboard")} />
+      <SalesPaymentManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
   // Show services page if selected
   if (currentPage === "services") {
     return (
-      <ServicesManagement onBack={() => setCurrentPage("dashboard")} />
+      <ServicesManagement onBack={() => handleBack("dashboard")} />
     );
   }
 
   // Show AI report page if selected
   if (currentPage === "aiReport") {
     return (
-      <AiReport onBack={() => setCurrentPage("dashboard")} />
+      <AiReport onBack={() => handleBack("dashboard")} />
     );
   }
 
   // Show report page if selected
   if (currentPage === "report") {
     return (
-      <Report onBack={() => setCurrentPage("dashboard")} />
+      <Report onBack={() => handleBack("dashboard")} />
     );
   }
 
   if (currentPage === "stock") {
     return (
-      <StockReport onBack={() => setCurrentPage("dashboard")} />
+      <StockReport onBack={() => handleBack("dashboard")} />
     );
   }
 
@@ -918,7 +913,7 @@ function App() {
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setCurrentPage("profile")}
+                onClick={() => navigateTo("profile")}
                 className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 group relative overflow-hidden bg-gradient-to-br from-purple-500 to-blue-500"
                 title="ویرایش پروفایل"
               >
@@ -1054,8 +1049,7 @@ function App() {
               <motion.button
                 key={item.title}
                 onClick={() => {
-                  incrementDashboardUsage(item.page);
-                  setCurrentPage(item.page);
+                  navigateTo(item.page);
                 }}
                 initial={{ opacity: 0, y: 20, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
