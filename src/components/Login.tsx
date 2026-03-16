@@ -185,7 +185,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   dir="rtl"
                 />
               </div>
-            </motion.div>
+            </div>
 
             {/* Email Field (Signup only) */}
             {!isLogin && (
