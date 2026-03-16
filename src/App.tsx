@@ -85,8 +85,6 @@ type Page =
   | "aiReport"
   | "report";
 
-const DASHBOARD_USAGE_KEY = "shafaf_dashboard_usage";
-
 const DASHBOARD_FEATURES: Array<{
   title: string;
   description: string;

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 // framer-motion imports removed; heavy animations dropped for low-spec support
 import toast from "react-hot-toast";
 import { getEnvConfig, saveEnvConfig } from "../utils/db";

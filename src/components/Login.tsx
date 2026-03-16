@@ -1,6 +1,4 @@
 import { useState } from "react";
-// framer-motion only used minimally now; heavy animations removed for low-spec support
-import { AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
 import { loginUser, registerUser, initUsersTable, type LoginResult } from "../utils/auth";
 import { openDatabase, isDatabaseOpen } from "../utils/db";

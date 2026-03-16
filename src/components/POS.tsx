@@ -8,7 +8,7 @@ import { getProducts, type Product } from "../utils/product";
 import { getCustomers, createCustomer, type Customer } from "../utils/customer";
 import { getUnits, type Unit } from "../utils/unit";
 import { getCurrencies, type Currency } from "../utils/currency";
-import { getAccounts, type Account } from "../utils/account";
+import { type Account } from "../utils/account";
 import {
     createSale,
     getSale,
@@ -22,8 +22,7 @@ import {
     type SalePayment,
     type ProductStock as ProductStockSummary,
 } from "../utils/sales";
-import { getServices as getServiceCatalog, type Service as ServiceCatalogItem } from "../utils/service";
-import { formatPersianDate, getCurrentPersianDate, persianToGeorgian } from "../utils/date";
+import { getCurrentPersianDate, persianToGeorgian } from "../utils/date";
 import SaleInvoice from "./SaleInvoice";
 import Footer from "./Footer";
 
@@ -130,8 +129,7 @@ export default function POS({ onBack }: POSProps) {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [units, setUnits] = useState<Unit[]>([]);
     const [currencies, setCurrencies] = useState<Currency[]>([]);
-    const [accounts, setAccounts] = useState<Account[]>([]);
-    const [servicesCatalog, setServicesCatalog] = useState<ServiceCatalogItem[]>([]);
+    const [accounts] = useState<Account[]>([]);
     const [productBatches, setProductBatches] = useState<Record<number, ProductBatch[]>>({});
     const [productStocks, setProductStocks] = useState<Record<number, ProductStockSummary>>({});
 
@@ -250,23 +248,18 @@ export default function POS({ onBack }: POSProps) {
                 customersResponse,
                 unitsData,
                 currenciesData,
-                accountsData,
-                servicesData,
             ] = await Promise.all([
                 getProducts(1, 1000),
                 getCustomers(1, 1000),
                 getUnits(),
                 getCurrencies(),
-                getAccounts(),
-                getServiceCatalog(1, 1000),
+                // getAccounts(),
             ]);
 
             setProducts(productsResponse.items);
             setCustomers(customersResponse.items);
             setUnits(unitsData);
             setCurrencies(currenciesData);
-            setAccounts(accountsData || []);
-            setServicesCatalog(servicesData.items || []);
 
             const base = currenciesData.find((c) => c.base);
             if (base) {
@@ -476,44 +469,6 @@ export default function POS({ onBack }: POSProps) {
         setPaidAmount("");
     };
 
-    const addServiceLine = () => {
-        setServiceItems((prev) => [
-            ...prev,
-            {
-                catalogId: null,
-                name: "",
-                price: 0,
-                quantity: 1,
-                discountType: null,
-                discountValue: 0,
-            },
-        ]);
-    };
-
-    const updateServiceLine = (index: number, changes: Partial<PosServiceItem>) => {
-        setServiceItems((prev) => {
-            const copy = [...prev];
-            const updated: PosServiceItem = { ...copy[index], ...changes };
-            if (changes.catalogId != null) {
-                const catalogItem = servicesCatalog.find((s) => s.id === changes.catalogId);
-                if (catalogItem) {
-                    updated.name = catalogItem.name;
-                    updated.price = catalogItem.price;
-                }
-            }
-            if (updated.quantity <= 0 && updated.price === 0) {
-                copy.splice(index, 1);
-                return copy;
-            }
-            copy[index] = updated;
-            return copy;
-        });
-    };
-
-    const removeServiceLine = (index: number) => {
-        setServiceItems((prev) => prev.filter((_, i) => i !== index));
-    };
-
     const findCurrencyName = (id: number | null | undefined) => {
         if (!id) return "";
         return currencies.find((c) => c.id === id)?.name ?? "";
@@ -532,7 +487,6 @@ export default function POS({ onBack }: POSProps) {
             toast.error(translations.errors.missingCurrency);
             return;
         }
-        const total = totalAfterDiscount;
         if (paidAmount && paidAmountNumber < 0) {
             toast.error(translations.errors.invalidPaid);
             return;
