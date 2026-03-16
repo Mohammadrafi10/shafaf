@@ -1471,7 +1471,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                                         <option key={batch.purchase_item_id} value={batch.purchase_item_id}>
                                                                             {batch.batch_number || `دسته ${batch.purchase_item_id}`} - 
                                                                             تاریخ: {formatPersianDate(batch.purchase_date)} - 
-                                                                            موجودی: {batch.remaining_quantity.toLocaleString()}
+                                                                            موجودی: {batch.remaining_quantity.toLocaleString("en-US", { maximumFractionDigits: 3 })}
                                                                             {batch.expiry_date && ` - انقضا: ${formatPersianDate(batch.expiry_date)}`}
                                                                         </option>
                                                                     ))}
@@ -1516,7 +1516,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                             </label>
                                                             <input
                                                                 type="number"
-                                                                step="0.01"
+                                                                step="0.001"
                                                                 value={item.per_price || ''}
                                                                 onChange={(e) => updateItem(index, 'per_price', parseFloat(e.target.value) || 0)}
                                                                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:border-purple-500"
@@ -1542,7 +1542,7 @@ export default function SalesManagement({ onBack, onOpenInvoice }: SalesManageme
                                                                 const exceeds = stock != null && itemExceedsStock(item);
                                                                 return exceeds && stock ? (
                                                                     <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400" dir="rtl">
-                                                                        {translations.quantityExceedsStock} (موجودی در این واحد: {stock.inSaleUnit.toLocaleString("en-US", { maximumFractionDigits: 2 })})
+                                                                        {translations.quantityExceedsStock} (موجودی در این واحد: {stock.inSaleUnit.toLocaleString("en-US", { maximumFractionDigits: 3 })})
                                                                     </p>
                                                                 ) : null;
                                                             })()}

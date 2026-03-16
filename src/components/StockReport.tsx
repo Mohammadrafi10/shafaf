@@ -134,7 +134,7 @@ export default function StockReport({ onBack }: StockReportProps) {
                         dir="ltr"
                         title={isLow ? translations.lowStock : undefined}
                     >
-                        {Number(r.remaining_quantity).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 6 })}
+                        {Number(r.remaining_quantity).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                         {isLow && " •"}
                     </span>
                 );
