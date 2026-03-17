@@ -8,7 +8,8 @@ import { getProducts, type Product } from "../utils/product";
 import { getCustomers, createCustomer, type Customer } from "../utils/customer";
 import { getUnits, type Unit } from "../utils/unit";
 import { getCurrencies, type Currency } from "../utils/currency";
-import { type Account } from "../utils/account";
+import { getServices, initServicesTable, type Service } from "../utils/service";
+import { getAccounts, initAccountsTable, type Account } from "../utils/account";
 import {
     createSale,
     getSale,
@@ -87,6 +88,8 @@ const translations = {
     wholesale: "کلان",
     services: "خدمات",
     addService: "افزودن خدمت",
+    emptyServices: "هیچ خدمتی اضافه نشده است",
+    selectService: "انتخاب خدمت",
     serviceName: "نام خدمت",
     servicePrice: "قیمت خدمت",
     quantityShort: "تعداد",
@@ -98,6 +101,7 @@ const translations = {
         missingAccount: "انتخاب حساب برای پرداخت الزامی است",
         stockExceeded: "مقدار از موجودی بیشتر است",
         missingDate: "تاریخ الزامی است",
+        missingService: "انتخاب خدمت الزامی است",
     },
     success: {
         saleCompleted: "فروش با موفقیت ثبت شد",
@@ -129,7 +133,8 @@ export default function POS({ onBack }: POSProps) {
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [units, setUnits] = useState<Unit[]>([]);
     const [currencies, setCurrencies] = useState<Currency[]>([]);
-    const [accounts] = useState<Account[]>([]);
+    const [servicesCatalog, setServicesCatalog] = useState<Service[]>([]);
+    const [accounts, setAccounts] = useState<Account[]>([]);
     const [productBatches, setProductBatches] = useState<Record<number, ProductBatch[]>>({});
     const [productStocks, setProductStocks] = useState<Record<number, ProductStockSummary>>({});
 
@@ -243,23 +248,38 @@ export default function POS({ onBack }: POSProps) {
             if (!dbOpen) {
                 await openDatabase("db");
             }
+            try {
+                await initAccountsTable();
+            } catch (err) {
+                console.log("Accounts table init:", err);
+            }
+            try {
+                await initServicesTable();
+            } catch (err) {
+                console.log("Services table init:", err);
+            }
             const [
                 productsResponse,
                 customersResponse,
                 unitsData,
                 currenciesData,
+                servicesResponse,
+                accountsData,
             ] = await Promise.all([
                 getProducts(1, 1000),
                 getCustomers(1, 1000),
                 getUnits(),
                 getCurrencies(),
-                // getAccounts(),
+                getServices(1, 1000, "", "name", "asc"),
+                getAccounts(),
             ]);
 
             setProducts(productsResponse.items);
             setCustomers(customersResponse.items);
             setUnits(unitsData);
             setCurrencies(currenciesData);
+            setServicesCatalog(servicesResponse.items ?? []);
+            setAccounts((accountsData ?? []).filter((a) => a.is_active));
 
             const base = currenciesData.find((c) => c.base);
             if (base) {
@@ -469,6 +489,37 @@ export default function POS({ onBack }: POSProps) {
         setPaidAmount("");
     };
 
+    const addServiceItem = () => {
+        setServiceItems((prev) => [
+            ...prev,
+            {
+                catalogId: null,
+                name: "",
+                price: 0,
+                quantity: 1,
+                discountType: null,
+                discountValue: 0,
+            },
+        ]);
+    };
+
+    const updateServiceItem = (index: number, changes: Partial<PosServiceItem>) => {
+        setServiceItems((prev) => {
+            const copy = [...prev];
+            const updated: PosServiceItem = { ...copy[index], ...changes };
+            if (updated.quantity <= 0) {
+                copy.splice(index, 1);
+                return copy;
+            }
+            copy[index] = updated;
+            return copy;
+        });
+    };
+
+    const removeServiceItem = (index: number) => {
+        setServiceItems((prev) => prev.filter((_, i) => i !== index));
+    };
+
     const findCurrencyName = (id: number | null | undefined) => {
         if (!id) return "";
         return currencies.find((c) => c.id === id)?.name ?? "";
@@ -545,6 +596,11 @@ export default function POS({ onBack }: POSProps) {
             discount_value: si.discountValue,
         }));
 
+        if (serviceItems.some((s) => !s.catalogId)) {
+            toast.error(translations.errors.missingService);
+            return;
+        }
+
         const orderDiscountTypeFinal =
             orderDiscountType && orderDiscountValue ? (orderDiscountType as "percent" | "fixed") : null;
         const orderDiscountValueFinal = Number(orderDiscountValue) || 0;
@@ -590,112 +646,106 @@ export default function POS({ onBack }: POSProps) {
 
     return (
         <div
-            className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4 md:p-6"
+            className="min-h-screen w-full bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4 md:p-6"
             dir="rtl"
         >
-            <div className="w-full max-w-7xl mx-auto">
-                <PageHeader
-                    title={translations.title}
-                    onBack={onBack}
-                    backLabel={translations.backToDashboard}
-                    actions={[]}
-                />
+            <PageHeader title="" onBack={onBack} backLabel="" actions={[]} />
 
-                <div className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                    <span className="font-semibold">{translations.keyboardShortcuts}:</span>{" "}
-                    {translations.shortcutsHelp}
-                </div>
+            <div className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                <span className="font-semibold">{translations.keyboardShortcuts}:</span>{" "}
+                {translations.shortcutsHelp}
+            </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
-                    <div className="lg:col-span-2 space-y-4">
-                        <div className="relative">
-                            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                                <Search className="h-5 w-5 text-gray-400" />
-                            </div>
-                            <input
-                                id="pos-product-search"
-                                type="text"
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="block w-full pr-10 pl-3 py-3 border border-gray-200 dark:border-gray-700 rounded-2xl leading-5 bg-white dark:bg-gray-800 placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 sm:text-sm transition-all shadow-sm hover:shadow-md"
-                                placeholder={translations.searchPlaceholder}
-                            />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6 items-start">
+                <div className="lg:col-span-2 space-y-4">
+                    <div className="relative">
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                            <Search className="h-5 w-5 text-gray-400" />
                         </div>
-
-                        <div className="bg-white dark:bg-gray-900/80 rounded-2xl shadow-lg border border-purple-100/60 dark:border-purple-900/40 p-3 md:p-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <h2 className="text-sm md:text-base font-bold text-gray-800 dark:text-gray-100">
-                                    {translations.products}
-                                </h2>
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    {filteredProducts.length} / {products.length}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[55vh] overflow-y-auto">
-                                {filteredProducts.map((product) => (
-                                    <motion.button
-                                        key={product.id}
-                                        whileHover={{ scale: 1.02, y: -2 }}
-                                        whileTap={{ scale: 0.97 }}
-                                        onClick={() => void addProductToCart(product)}
-                                        className="flex flex-col items-stretch text-right bg-gradient-to-br from-white to-purple-50 dark:from-gray-800 dark:to-gray-900 border border-gray-100 dark:border-gray-700 rounded-2xl p-3 shadow-sm hover:shadow-md transition-all"
-                                    >
-                                        <div className="flex-1">
-                                            <div className="flex items-center justify-between gap-1 mb-1">
-                                                <span className="font-bold text-xs md:text-sm text-gray-900 dark:text-gray-100 line-clamp-2">
-                                                    {product.name}
-                                                </span>
-                                            </div>
-                                            {product.bar_code && (
-                                                <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-1 ltr">
-                                                    {product.bar_code}
-                                                </p>
-                                            )}
-                                            <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                {translations.unit}:{" "}
-                                                <span className="font-semibold">
-                                                    {product.unit || "-"}
-                                                </span>
-                                            </p>
-                                        </div>
-                                    </motion.button>
-                                ))}
-                            </div>
-                        </div>
+                        <input
+                            id="pos-product-search"
+                            type="text"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="block w-full pr-10 pl-3 py-3 border border-gray-200 dark:border-gray-700 rounded-2xl leading-5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 sm:text-sm transition-all shadow-sm hover:shadow-md"
+                            placeholder={translations.searchPlaceholder}
+                        />
                     </div>
 
-                    <div className="space-y-4">
-                        <div className="bg-white dark:bg-gray-900/80 rounded-2xl shadow-lg border border-purple-100/60 dark:border-purple-900/40 p-3 md:p-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <h2 className="text-sm md:text-base font-bold text-gray-800 dark:text-gray-100">
-                                    {translations.cart}
-                                </h2>
-                                {cartItems.length > 0 && (
-                                    <button
-                                        onClick={clearCart}
-                                        className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400"
-                                    >
-                                        {translations.clearCart}
-                                    </button>
-                                )}
-                            </div>
-                            {cartItems.length === 0 ? (
-                                <p className="text-xs text-gray-400 dark:text-gray-500">
-                                    {translations.emptyCart}
-                                </p>
-                            ) : (
-                                <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
-                                    {cartItems.map((item, index) => {
-                                        const stock = getItemStockInSaleUnit(item);
-                                        return (
-                                            <div
-                                                key={`${item.product.id}-${index}`}
-                                                className={`rounded-xl border p-2.5 text-xs bg-gray-50/60 dark:bg-gray-800/80 ${
-                                                    itemExceedsStock(item)
-                                                        ? "border-amber-500"
-                                                        : "border-gray-200 dark:border-gray-700"
-                                                }`}
-                                            >
+                    <div className="bg-white dark:bg-gray-900/80 rounded-2xl shadow-lg border border-purple-100/60 dark:border-purple-900/40 p-3 md:p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-sm md:text-base font-bold text-gray-800 dark:text-gray-100">
+                                {translations.products}
+                            </h2>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {filteredProducts.length} / {products.length}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[55vh] overflow-y-auto">
+                            {filteredProducts.map((product) => (
+                                <motion.button
+                                    key={product.id}
+                                    whileHover={{ scale: 1.02, y: -2 }}
+                                    whileTap={{ scale: 0.97 }}
+                                    onClick={() => void addProductToCart(product)}
+                                    className="flex flex-col items-stretch text-right bg-gradient-to-br from-white to-purple-50 dark:from-gray-800 dark:to-gray-900 border border-gray-100 dark:border-gray-700 rounded-2xl p-3 shadow-sm hover:shadow-md transition-all"
+                                >
+                                    <div className="flex-1">
+                                        <div className="flex items-center justify-between gap-1 mb-1">
+                                            <span className="font-bold text-xs md:text-sm text-gray-900 dark:text-gray-100 line-clamp-2">
+                                                {product.name}
+                                            </span>
+                                        </div>
+                                        {product.bar_code && (
+                                            <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-1 ltr">
+                                                {product.bar_code}
+                                            </p>
+                                        )}
+                                        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                                            {translations.unit}:{" "}
+                                            <span className="font-semibold">
+                                                {product.unit || "-"}
+                                            </span>
+                                        </p>
+                                    </div>
+                                </motion.button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="bg-white dark:bg-gray-900/80 rounded-2xl shadow-lg border border-purple-100/60 dark:border-purple-900/40 p-3 md:p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-sm md:text-base font-bold text-gray-800 dark:text-gray-100">
+                                {translations.cart}
+                            </h2>
+                            {cartItems.length > 0 && (
+                                <button
+                                    onClick={clearCart}
+                                    className="text-xs text-red-500 hover:text-red-600 dark:hover:text-red-400"
+                                >
+                                    {translations.clearCart}
+                                </button>
+                            )}
+                        </div>
+                        {cartItems.length === 0 ? (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                                {translations.emptyCart}
+                            </p>
+                        ) : (
+                            <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+                                {cartItems.map((item, index) => {
+                                    const stock = getItemStockInSaleUnit(item);
+                                    return (
+                                        <div
+                                            key={`${item.product.id}-${index}`}
+                                            className={`rounded-xl border p-2.5 text-xs bg-gray-50/60 dark:bg-gray-800/80 ${
+                                                itemExceedsStock(item)
+                                                    ? "border-amber-500"
+                                                    : "border-gray-200 dark:border-gray-700"
+                                            }`}
+                                        >
                                                 <div className="flex items-start justify-between gap-2 mb-1">
                                                     <div className="flex-1">
                                                         <p className="font-semibold text-gray-900 dark:text-gray-100 text-[11px]">
@@ -706,7 +756,7 @@ export default function POS({ onBack }: POSProps) {
                                                             {item.unit?.name || item.product.unit || "-"}
                                                         </p>
                                                         {stock != null && (
-                                                            <p className="text-[10px] text-gray-400 mt-0.5">
+                                                            <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
                                                                 {translations.available}:{" "}
                                                                 {stock.toLocaleString("en-US", {
                                                                     maximumFractionDigits: 3,
@@ -738,7 +788,7 @@ export default function POS({ onBack }: POSProps) {
                                                                         0,
                                                                 })
                                                             }
-                                                            className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                                            className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                                             dir="ltr"
                                                         />
                                                     </div>
@@ -758,7 +808,7 @@ export default function POS({ onBack }: POSProps) {
                                                                         0,
                                                                 })
                                                             }
-                                                            className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                                            className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                                             dir="ltr"
                                                         />
                                                     </div>
@@ -780,12 +830,170 @@ export default function POS({ onBack }: POSProps) {
                                                         </span>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="bg-white dark:bg-gray-900/80 rounded-2xl shadow-lg border border-purple-100/60 dark:border-purple-900/40 p-3 md:p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-sm md:text-base font-bold text-gray-800 dark:text-gray-100">
+                                {translations.services}
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={addServiceItem}
+                                className="text-xs font-semibold text-purple-600 dark:text-purple-300 hover:text-purple-700 dark:hover:text-purple-200"
+                            >
+                                {translations.addService}
+                            </button>
                         </div>
+
+                        {serviceItems.length === 0 ? (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                                {translations.emptyServices}
+                            </p>
+                        ) : (
+                            <div className="space-y-3">
+                                {serviceItems.map((si, index) => {
+                                    const lineSubtotal = si.price * si.quantity;
+                                    const disc = computeLineDiscountAmount(lineSubtotal, si.discountType, si.discountValue);
+                                    const total = Math.round((lineSubtotal - disc) * 100) / 100;
+                                    return (
+                                        <div
+                                            key={`service-${index}`}
+                                            className="rounded-xl border border-gray-200 dark:border-gray-700 p-2.5 text-xs bg-gray-50/60 dark:bg-gray-800/80"
+                                        >
+                                            <div className="flex items-start justify-between gap-2 mb-2">
+                                                <p className="font-semibold text-gray-900 dark:text-gray-100 text-[11px]">
+                                                    {translations.services} {index + 1}
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeServiceItem(index)}
+                                                    className="text-[10px] text-red-500 hover:text-red-600"
+                                                >
+                                                    {translations.remove}
+                                                </button>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {translations.selectService}
+                                                    </span>
+                                                    <select
+                                                        value={si.catalogId ?? ""}
+                                                        onChange={(e) => {
+                                                            const nextId = e.target.value ? parseInt(e.target.value, 10) : null;
+                                                            const svc = nextId ? servicesCatalog.find((s) => s.id === nextId) ?? null : null;
+                                                            updateServiceItem(index, {
+                                                                catalogId: nextId,
+                                                                name: svc?.name ?? "",
+                                                                price: svc?.price ?? 0,
+                                                            });
+                                                        }}
+                                                        className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
+                                                    >
+                                                        <option value="">{translations.selectService}</option>
+                                                        {servicesCatalog
+                                                            .filter((s) => !selectedCurrencyId || s.currency_id == null || s.currency_id === selectedCurrencyId)
+                                                            .map((s) => (
+                                                                <option key={s.id} value={s.id}>
+                                                                    {s.name}
+                                                                </option>
+                                                            ))}
+                                                    </select>
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {translations.servicePrice}
+                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        step={0.01}
+                                                        value={si.price}
+                                                        onChange={(e) =>
+                                                            updateServiceItem(index, {
+                                                                price: parseFloat(e.target.value || "0") || 0,
+                                                            })
+                                                        }
+                                                        className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
+                                                        dir="ltr"
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {translations.quantityShort}
+                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        step={1}
+                                                        value={si.quantity}
+                                                        onChange={(e) =>
+                                                            updateServiceItem(index, {
+                                                                quantity: parseFloat(e.target.value || "0") || 0,
+                                                            })
+                                                        }
+                                                        className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
+                                                        dir="ltr"
+                                                    />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {translations.discountType}
+                                                    </span>
+                                                    <div className="flex gap-2">
+                                                        <select
+                                                            value={si.discountType ?? ""}
+                                                            onChange={(e) =>
+                                                                updateServiceItem(index, {
+                                                                    discountType: (e.target.value as "percent" | "fixed" | "") || null,
+                                                                    discountValue: 0,
+                                                                })
+                                                            }
+                                                            className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
+                                                        >
+                                                            <option value="">{translations.discountType}</option>
+                                                            <option value="percent">{translations.percent}</option>
+                                                            <option value="fixed">{translations.fixed}</option>
+                                                        </select>
+                                                        <input
+                                                            type="number"
+                                                            min={0}
+                                                            step={0.01}
+                                                            value={si.discountType ? si.discountValue : 0}
+                                                            onChange={(e) =>
+                                                                updateServiceItem(index, {
+                                                                    discountValue: parseFloat(e.target.value || "0") || 0,
+                                                                })
+                                                            }
+                                                            disabled={!si.discountType}
+                                                            className="w-24 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px] disabled:opacity-60"
+                                                            dir="ltr"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-2 flex items-center justify-between">
+                                                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                                                    {translations.total}
+                                                </span>
+                                                <span className="font-bold text-[12px] text-purple-600 dark:text-purple-300 ltr">
+                                                    {total.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
 
                         <div className="bg-white dark:bg-gray-900/80 rounded-2xl shadow-lg border border-purple-100/60 dark:border-purple-900/40 p-3 md:p-4 space-y-3">
                             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -800,7 +1008,7 @@ export default function POS({ onBack }: POSProps) {
                                                 e.target.value ? parseInt(e.target.value, 10) : null
                                             )
                                         }
-                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                     >
                                         <option value="">{translations.selectCustomer}</option>
                                         {customers.map((c) => (
@@ -821,7 +1029,7 @@ export default function POS({ onBack }: POSProps) {
                                                 e.target.value ? parseInt(e.target.value, 10) : null
                                             )
                                         }
-                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                     >
                                         {currencies.map((c) => (
                                             <option key={c.id} value={c.id}>
@@ -838,7 +1046,7 @@ export default function POS({ onBack }: POSProps) {
                                         type="date"
                                         value={date}
                                         onChange={(e) => setDate(e.target.value)}
-                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                     />
                                 </div>
                                 <div className="flex flex-col">
@@ -852,7 +1060,7 @@ export default function POS({ onBack }: POSProps) {
                                                 e.target.value ? parseInt(e.target.value, 10) : null
                                             )
                                         }
-                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                        className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                     >
                                         <option value="">{translations.account}</option>
                                         {accounts
@@ -874,7 +1082,7 @@ export default function POS({ onBack }: POSProps) {
                                     value={notes}
                                     onChange={(e) => setNotes(e.target.value)}
                                     rows={2}
-                                    className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px] resize-none"
+                                    className="w-full px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px] resize-none"
                                 />
                             </div>
 
@@ -902,7 +1110,7 @@ export default function POS({ onBack }: POSProps) {
                                                     e.target.value as "percent" | "fixed" | ""
                                                 )
                                             }
-                                            className="px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                            className="px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                         >
                                             <option value="">{translations.discountType}</option>
                                             <option value="percent">{translations.percent}</option>
@@ -917,7 +1125,7 @@ export default function POS({ onBack }: POSProps) {
                                                 parseFloat(e.target.value || "0") || 0
                                             )
                                         }
-                                        className="w-24 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                        className="w-24 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                         dir="ltr"
                                     />
                                 </div>
@@ -940,7 +1148,7 @@ export default function POS({ onBack }: POSProps) {
                                         type="number"
                                         value={paidAmount}
                                         onChange={(e) => setPaidAmount(e.target.value)}
-                                        className="w-28 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-[11px]"
+                                        className="w-28 px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
                                         dir="ltr"
                                     />
                                 </div>
@@ -991,11 +1199,10 @@ export default function POS({ onBack }: POSProps) {
                                 </motion.button>
                             </div>
                         </div>
-                    </div>
                 </div>
-
-                <Footer className="mt-6" />
             </div>
+
+            <Footer className="mt-6" />
 
             <AnimatePresence>
                 {showReceipt && receiptSale && receiptCustomer && (

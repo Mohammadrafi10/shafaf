@@ -569,6 +569,17 @@ export default function SaleInvoice({
                 }
 
                 @media print {
+                    @page {
+                        size: A4;
+                        margin: 0;
+                    }
+                    html, body {
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        width: 210mm !important;
+                        height: 297mm !important;
+                        background: white !important;
+                    }
                     .invoice-page-wrapper {
                         position: static !important;
                         background: white !important;
@@ -584,9 +595,10 @@ export default function SaleInvoice({
                     }
                     .invoice-card { 
                         box-shadow: none; 
-                        margin: 0 auto; 
-                        width: 210mm;
-                        min-height: auto !important;
+                        margin: 0 !important; 
+                        width: 210mm !important;
+                        height: 297mm !important;
+                        min-height: 297mm !important;
                         overflow: visible !important;
                         border-radius: 0;
                         border: none;
