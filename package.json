@@ -22,7 +22,7 @@
     "framer-motion": "^12.26.1",
     "html2canvas": "^1.4.1",
     "jsbarcode": "^3.12.3",
-    "jspdf": "^4.0.0",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.562.0",
     "moment-jalaali": "^0.10.4",
     "qrcode": "^1.5.4",
