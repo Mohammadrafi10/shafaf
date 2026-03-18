@@ -23,7 +23,7 @@ import {
     type SalePayment,
     type ProductStock as ProductStockSummary,
 } from "../utils/sales";
-import { getCurrentPersianDate, persianToGeorgian } from "../utils/date";
+import { formatPersianDate, getCurrentPersianDate, persianToGeorgian } from "../utils/date";
 import SaleInvoice from "./SaleInvoice";
 import Footer from "./Footer";
 
@@ -308,13 +308,17 @@ export default function POS({ onBack }: POSProps) {
         void loadInitialData();
     }, [loadInitialData]);
 
-    const ensureBatchesLoaded = async (productId: number) => {
-        if (productBatches[productId]) return;
+    const ensureBatchesLoaded = async (productId: number): Promise<ProductBatch[]> => {
+        const cached = productBatches[productId];
+        if (cached) return cached;
         try {
             const batches = await getProductBatches(productId);
             setProductBatches((prev) => ({ ...prev, [productId]: batches }));
+            return batches;
         } catch (err) {
             console.error("Error loading batches:", err);
+            toast.error("خطا در دریافت اطلاعات دسته‌ها");
+            return [];
         }
     };
 
@@ -350,7 +354,9 @@ export default function POS({ onBack }: POSProps) {
         if (!product) return null;
         const batchesForProduct = productBatches[product.id] || [];
         if (item.batch) {
-            const batch = batchesForProduct.find((b) => b.purchase_item_id === item.batch?.purchase_item_id);
+            const batch =
+                batchesForProduct.find((b) => b.purchase_item_id === item.batch?.purchase_item_id) ??
+                item.batch;
             if (!batch) return null;
             if (item.saleType === "wholesale") {
                 return batch.remaining_quantity;
@@ -370,7 +376,8 @@ export default function POS({ onBack }: POSProps) {
         if (!product) return false;
         const batchesForProduct = productBatches[product.id] || [];
         const batch = item.batch
-            ? batchesForProduct.find((b) => b.purchase_item_id === item.batch?.purchase_item_id)
+            ? batchesForProduct.find((b) => b.purchase_item_id === item.batch?.purchase_item_id) ??
+              item.batch
             : null;
         if (batch) {
             const amount = Number(item.quantity);
@@ -386,11 +393,39 @@ export default function POS({ onBack }: POSProps) {
         return item.quantity > inUnit;
     };
 
-    const addProductToCart = async (product: Product) => {
-        await ensureBatchesLoaded(product.id);
-        await ensureStockLoaded(product.id, null);
+    /** Prefetch batches for all products currently in cart (e.g. after refresh or stale state). */
+    useEffect(() => {
+        const ids = [...new Set(cartItems.map((c) => c.product.id))];
+        for (const id of ids) {
+            if (!productBatches[id]) {
+                void ensureBatchesLoaded(id);
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- prefetch when cart product set changes; avoid loop on every productBatches update
+    }, [cartItems]);
 
-        const batchesForProduct = productBatches[product.id] || [];
+    /** When batches arrive and a line has no batch, default to oldest (same as Sales). */
+    useEffect(() => {
+        setCartItems((prev) => {
+            let changed = false;
+            const next = prev.map((item) => {
+                const batches = productBatches[item.product.id];
+                if (!batches?.length || item.batch) return item;
+                const b = batches[0];
+                const perPrice =
+                    item.saleType === "wholesale"
+                        ? b.wholesale_price || b.per_price
+                        : b.retail_price || b.per_price;
+                changed = true;
+                return { ...item, batch: b, perPrice };
+            });
+            return changed ? next : prev;
+        });
+    }, [productBatches]);
+
+    const addProductToCart = async (product: Product) => {
+        const batchesForProduct = await ensureBatchesLoaded(product.id);
+        await ensureStockLoaded(product.id, null);
         const defaultBatch = batchesForProduct[0] ?? null;
 
         const unitFromProduct = getDefaultUnitForProduct(product);
@@ -445,14 +480,11 @@ export default function POS({ onBack }: POSProps) {
             const copy = [...prev];
             const updated: PosCartItem = { ...copy[index], ...changes };
 
-            // If sale type or batch changed, recompute perPrice
-            if (
-                changes.saleType ||
-                (changes.batch && updated.product && updated.batch && productBatches[updated.product.id])
-            ) {
+            if (changes.saleType != null || changes.batch !== undefined) {
                 const batchesForProduct = productBatches[updated.product.id] || [];
                 const selectedBatch = updated.batch
-                    ? batchesForProduct.find((b) => b.purchase_item_id === updated.batch?.purchase_item_id)
+                    ? batchesForProduct.find((b) => b.purchase_item_id === updated.batch?.purchase_item_id) ??
+                      updated.batch
                     : null;
                 if (selectedBatch) {
                     updated.perPrice =
@@ -575,11 +607,24 @@ export default function POS({ onBack }: POSProps) {
                 );
                 return;
             }
+            /**
+             * Backend stock: sold_base = amount * unit.ratio. Wholesale qty is in batch units;
+             * retail qty is already in retail/small units. Match DB: wholesale → amount * per_unit,
+             * per_price scaled so line total stays qty * wholesale_unit_price.
+             */
+            const perUnit = Math.max(ci.batch?.per_unit ?? 1, 1e-9);
+            const isWholesaleWithBatch =
+                ci.saleType === "wholesale" && ci.batch != null && (ci.batch.per_unit ?? 0) > 0;
+            const amountForSale = isWholesaleWithBatch
+                ? ci.quantity * perUnit
+                : ci.quantity;
+            const perPriceForSale = isWholesaleWithBatch ? ci.perPrice / perUnit : ci.perPrice;
+
             itemsPayload.push({
                 product_id: ci.product.id,
                 unit_id: resolvedUnit.id,
-                per_price: ci.perPrice,
-                amount: ci.quantity,
+                per_price: Math.round(perPriceForSale * 1e6) / 1e6,
+                amount: Math.round(amountForSale * 1e6) / 1e6,
                 purchase_item_id: ci.batch?.purchase_item_id ?? null,
                 sale_type: ci.saleType,
                 discount_type: ci.discountType,
@@ -623,6 +668,30 @@ export default function POS({ onBack }: POSProps) {
             );
 
             toast.success(translations.success.saleCompleted);
+
+            const soldProductIds = [...new Set(cartItems.map((c) => c.product.id))];
+            try {
+                const refreshed = await Promise.all(
+                    soldProductIds.map(async (id) => {
+                        try {
+                            const batches = await getProductBatches(id);
+                            return { id, batches } as const;
+                        } catch (e) {
+                            console.error(`POS: refresh batches for product ${id}:`, e);
+                            return null;
+                        }
+                    })
+                );
+                setProductBatches((prev) => {
+                    const next = { ...prev };
+                    for (const row of refreshed) {
+                        if (row) next[row.id] = row.batches;
+                    }
+                    return next;
+                });
+            } catch (e) {
+                console.error("POS: batch refresh after sale:", e);
+            }
 
             const saleData = await getSale(newSale.id);
             const salePayments = await getSalePayments(newSale.id);
@@ -771,6 +840,145 @@ export default function POS({ onBack }: POSProps) {
                                                         {translations.remove}
                                                     </button>
                                                 </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+                                                    {productBatches[item.product.id] &&
+                                                        productBatches[item.product.id].length > 0 && (
+                                                            <div className="flex flex-col">
+                                                                <span className="text-[10px] text-gray-400 mb-0.5">
+                                                                    دسته (Batch)
+                                                                </span>
+                                                                <select
+                                                                    value={
+                                                                        item.batch?.purchase_item_id ?? ""
+                                                                    }
+                                                                    onChange={(e) => {
+                                                                        const pid = parseInt(
+                                                                            e.target.value,
+                                                                            10
+                                                                        );
+                                                                        const b = productBatches[
+                                                                            item.product.id
+                                                                        ]?.find(
+                                                                            (x) =>
+                                                                                x.purchase_item_id ===
+                                                                                pid
+                                                                        );
+                                                                        if (b) {
+                                                                            updateCartItem(index, {
+                                                                                batch: b,
+                                                                            });
+                                                                        }
+                                                                    }}
+                                                                    onFocus={() => {
+                                                                        void ensureBatchesLoaded(
+                                                                            item.product.id
+                                                                        );
+                                                                    }}
+                                                                    className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
+                                                                    dir="rtl"
+                                                                >
+                                                                    {productBatches[item.product.id].map(
+                                                                        (batch) => (
+                                                                            <option
+                                                                                key={
+                                                                                    batch.purchase_item_id
+                                                                                }
+                                                                                value={
+                                                                                    batch.purchase_item_id
+                                                                                }
+                                                                            >
+                                                                                {batch.batch_number ||
+                                                                                    `دسته ${batch.purchase_item_id}`}{" "}
+                                                                                - تاریخ:{" "}
+                                                                                {formatPersianDate(
+                                                                                    batch.purchase_date
+                                                                                )}{" "}
+                                                                                - موجودی:{" "}
+                                                                                {batch.remaining_quantity.toLocaleString(
+                                                                                    "en-US",
+                                                                                    {
+                                                                                        maximumFractionDigits: 3,
+                                                                                    }
+                                                                                )}
+                                                                                {batch.expiry_date &&
+                                                                                    ` - انقضا: ${formatPersianDate(batch.expiry_date)}`}
+                                                                            </option>
+                                                                        )
+                                                                    )}
+                                                                </select>
+                                                            </div>
+                                                        )}
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] text-gray-400 mb-0.5">
+                                                            نوع فروش
+                                                        </span>
+                                                        <select
+                                                            value={item.saleType || "retail"}
+                                                            onChange={(e) =>
+                                                                updateCartItem(index, {
+                                                                    saleType: e.target
+                                                                        .value as PosSaleType,
+                                                                })
+                                                            }
+                                                            className="w-full px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 text-[11px]"
+                                                            dir="rtl"
+                                                        >
+                                                            <option value="retail">خرده فروشی</option>
+                                                            <option value="wholesale">عمده فروشی</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                                {item.batch &&
+                                                    item.batch.purchase_item_id &&
+                                                    productBatches[item.product.id] && (
+                                                        <div className="mb-2 p-2 bg-blue-50/80 dark:bg-blue-900/20 rounded-lg text-[10px] text-gray-700 dark:text-gray-300">
+                                                            {(() => {
+                                                                const batch =
+                                                                    productBatches[
+                                                                        item.product.id
+                                                                    ].find(
+                                                                        (b) =>
+                                                                            b.purchase_item_id ===
+                                                                            item.batch?.purchase_item_id
+                                                                    ) ?? item.batch;
+                                                                if (!batch) return null;
+                                                                return (
+                                                                    <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                                                                        <div>
+                                                                            <span className="font-semibold">
+                                                                                تاریخ خرید:
+                                                                            </span>{" "}
+                                                                            {formatPersianDate(
+                                                                                batch.purchase_date
+                                                                            )}
+                                                                        </div>
+                                                                        {batch.expiry_date && (
+                                                                            <div>
+                                                                                <span className="font-semibold">
+                                                                                    تاریخ انقضا:
+                                                                                </span>{" "}
+                                                                                {formatPersianDate(
+                                                                                    batch.expiry_date
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                        <div>
+                                                                            <span className="font-semibold">
+                                                                                موجودی:
+                                                                            </span>{" "}
+                                                                            {batch.remaining_quantity.toLocaleString()}
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="font-semibold">
+                                                                                قیمت خرید:
+                                                                            </span>{" "}
+                                                                            {batch.per_price.toLocaleString()}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    )}
                                                 <div className="grid grid-cols-3 gap-2 items-center">
                                                     <div className="flex flex-col">
                                                         <span className="text-[10px] text-gray-400">
