@@ -661,6 +661,7 @@ export default function PurchaseManagement({ onBack }: PurchaseManagementProps) 
         units={units}
         companySettings={companySettings}
         currencyName={currencies.find(c => c.id === viewingPurchase.purchase.currency_id)?.name}
+        payments={purchasePayments[viewingPurchase.purchase.id]}
         onClose={() => setShowInvoice(false)}
       />
     );

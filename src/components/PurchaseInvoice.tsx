@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from "react";
 import { PurchaseWithItems, PurchaseItem } from "../utils/purchase";
+import { type PurchasePayment } from "../utils/purchase_payment";
 import { Supplier } from "../utils/supplier";
 import { Product } from "../utils/product";
 import { Unit } from "../utils/unit";
@@ -12,6 +13,7 @@ interface PurchaseInvoiceProps {
     supplier: Supplier;
     products: Product[];
     units: Unit[];
+    payments?: PurchasePayment[];
     companySettings?: CompanySettings | null;
     currencyName?: string;
     onClose?: () => void;
@@ -22,6 +24,7 @@ export default function PurchaseInvoice({
     supplier,
     products,
     units,
+    payments,
     companySettings,
     currencyName,
     onClose,
@@ -98,6 +101,8 @@ export default function PurchaseInvoice({
     };
 
     const currencyLabel = currencyName ? ` ${currencyName}` : "";
+    const paidAmount = (payments ?? []).reduce((sum, p) => sum + (p.total ?? p.amount), 0);
+    const remainingAmount = purchaseData.purchase.total_amount - paidAmount;
 
     return (
         <>
@@ -686,17 +691,27 @@ export default function PurchaseInvoice({
 
                                 <div className="total-card print-break-inside">
                                     <div className="total-row">
-                                        <span className="total-label">جمع کل</span>
-                                        <span className="total-value">{formatNumber(purchaseData.purchase.total_amount)}{currencyLabel}</span>
+                                        <span className="total-label">جمع کل خرید</span>
+                                        <span className="total-value">
+                                            {formatNumber(purchaseData.purchase.total_amount)}{currencyLabel}
+                                        </span>
                                     </div>
-                                    <div className="total-row" style={{ opacity: 0.7 }}>
-                                        <span className="total-label">مالیات و عوارض</span>
-                                        <span className="total-value">0</span>
+                                    <div className="total-row" style={{ opacity: 0.9 }}>
+                                        <span className="total-label">مبلغ پرداخت شده</span>
+                                        <span className="total-value">
+                                            {formatNumber(paidAmount)}{currencyLabel}
+                                        </span>
+                                    </div>
+                                    <div className="total-row" style={{ opacity: 0.9 }}>
+                                        <span className="total-label">باقی‌مانده</span>
+                                        <span className="total-value">
+                                            {formatNumber(Math.max(remainingAmount, 0))}{currencyLabel}
+                                        </span>
                                     </div>
                                     <div className="total-row">
                                         <span className="grand-total-label">مبلغ قابل پرداخت</span>
                                         <span className="grand-total-value">
-                                            {formatNumber(purchaseData.purchase.total_amount)}{currencyLabel}
+                                            {formatNumber(Math.max(remainingAmount, 0))}{currencyLabel}
                                         </span>
                                     </div>
                                 </div>
