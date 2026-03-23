@@ -35,7 +35,7 @@ dotenv = "0.15"
 aes-gcm = "0.10"
 sha2 = "0.10"
 hex = "0.4"
-sysinfo = "0.30"
+sysinfo = "0.38"
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
